@@ -4,11 +4,24 @@ Guidance for AI agents and contributors working in this repository.
 
 ## Project
 
-**Substrackt** is a fresh [Wails v3](https://v3.wails.io/) desktop application
-(Go backend + TypeScript/Vite frontend). It is still an untouched scaffold: the
-only backend logic is the demo `GreetService` and the periodic `time` event.
+**Substrackt** is a [Wails v3](https://v3.wails.io/) desktop application (Go
+backend + Svelte 5/TypeScript frontend) that tracks subscriptions and the payment
+methods behind them. Milestone 1 (local CRUD over SQLite) is implemented; the
+roadmap (email ingestion with a local LLM, API connectors, browser scraping,
+review queue) lives in `docs/plan.md`.
 
 Keep changes idiomatic for Wails v3 — it differs substantially from v2.
+
+### Hard product constraints
+
+- **No cloud LLM.** The LLM client (once built) must talk to a local /
+  self-hosted OpenAI-compatible endpoint only. Never add vendor keys or send
+  subscription data to a hosted API.
+- **Never store secrets or PANs.** Payment methods hold metadata only (label,
+  issuer, network, last4, expiry, wallet address + chain). Never accept or
+  persist full card numbers or CVVs.
+- Amounts are integer minor units + currency + scale. Billing dates are calendar
+  dates (`domain.Date`), never timestamps.
 
 ## Toolchain
 
@@ -49,13 +62,14 @@ because this host has `gtk+-3.0` + `webkit2gtk-4.1` dev packages but **not**
 ## Commands
 
 ```sh
-wails3 dev                 # dev mode (hot reload, vite on WAILS_VITE_PORT)
-wails3 build               # production build -> bin/substrackt
-wails3 generate bindings   # regenerate TS bindings after changing Go services
-wails3 task <task>         # run a Taskfile task directly
+wails3 dev                        # dev mode (hot reload, vite on WAILS_VITE_PORT)
+wails3 build                      # production build -> bin/substrackt
+wails3 generate bindings          # regenerate TS bindings after changing Go services
 go build -tags gtk3 . ./internal/...
 go vet -tags gtk3 . ./internal/...
-npm --prefix frontend run build
+go test -tags gtk3 ./internal/...
+npm --prefix frontend run check   # svelte-check
+npm --prefix frontend run build   # vite production build
 ```
 
 Do **not** use `go build ./...`: `build/ios` and `build/android` contain stub
@@ -64,46 +78,65 @@ Do **not** use `go build ./...`: `build/ios` and `build/android` contain stub
 ## Layout
 
 ```
-main.go             app entry: application.New(), window, services, assets
-greetservice.go     example bound service
-internal/store/     bbolt-backed local database (accounts + settings buckets)
-internal/mail/      go-imap/v2 client wrapper (dial, list mailboxes, select)
-frontend/           Vite + TypeScript UI
-frontend/bindings/  generated TS bindings (do not hand-edit)
-frontend/dist/      vite output, embedded via //go:embed all:frontend/dist
-build/              per-platform build assets, icons, Taskfiles, config.yml
-Taskfile.yml        wails3 task definitions
+main.go                 app entry: DB path, services, window, embedded assets
+internal/domain/        models, Money, calendar Date, billing math, ULID ids
+internal/store/         SQLite store: open/WAL, migrations, repositories
+internal/store/migrations/*.sql   embedded schema migrations (add new files, never edit applied ones)
+internal/app/           Wails-bound services, DTOs, mappers, tests
+internal/mail/          go-imap/v2 client wrapper (for the future email source)
+frontend/src/           Svelte 5 UI: routes/, components/, lib/
+frontend/bindings/      generated TS bindings (do not hand-edit)
+frontend/dist/          vite output, embedded via //go:embed all:frontend/dist
+build/                  per-platform build assets, icons, Taskfiles, config.yml
+docs/plan.md            architecture and milestones
 ```
+
+## Architecture notes
+
+- `main.go` opens the store at `<user config dir>/Substrackt/substrackt.db`
+  (`SUBSTRACKT_HOME` overrides), registers the services and creates the window.
+- Services in `internal/app` are plain structs. They validate input, translate
+  between domain types and DTOs, and emit events (`subscription:changed`,
+  `payment-method:changed`, `vendor:changed`). Keep DTOs separate from domain
+  types; the frontend only ever sees DTOs.
+- Vendors are created on demand from the subscription editor (by name,
+  case-insensitive), so a subscription may carry a vendor name without an ID.
+- `Subscription.NextRenewal` is always recomputed from the original anchor date
+  via `Interval.NextRenewal(anchor, today)` — never by repeatedly adding to the
+  previous renewal, which drifts at month ends.
+- Empty optional foreign keys (`vendor_id`, `payment_method_id`) must be written
+  as SQL `NULL` (see `store.nullString`), otherwise the foreign keys fail.
+- SQLite runs with `SetMaxOpenConns(1)` and WAL; new tables go in a **new**
+  numbered migration, because `0001_init.sql` is already applied everywhere.
 
 ## Conventions
 
-- Backend code is `package main` at the repo root; services are plain structs
-  registered in `application.Options{Services: ...}`.
 - The Go module path is `substrackt`. Bindings are generated under
-  `frontend/bindings/substrackt`; frontend imports must match that path. Renaming
-  the module requires updating `frontend/src/*.ts` imports.
-- Any Go change that adds/removes/renames a bound method requires regenerating
-  bindings (`wails3 generate bindings`) or the frontend build fails.
+  `frontend/bindings/substrackt`; `frontend/src/lib/api.ts` is the only file that
+  imports them, so the generated surface changes in one place.
+- Any Go change that adds/removes/renames a bound method or DTO requires
+  regenerating bindings (`wails3 generate bindings`) or the frontend build breaks.
 - Product metadata lives in `build/config.yml`; after editing `info` or
   `fileAssociations`, run `wails3 task common:update:build-assets`.
-- No `git` repo is initialised yet; `.gitignore` already covers `.task`,
-  `.wails`, `bin`, `frontend/dist`, `frontend/node_modules`.
+- Frontend entry points: `src/main.ts` mounts `App.svelte`; routing is hash-based
+  (`lib/router.svelte.ts`); shared state lives in `lib/state.svelte.ts`.
 
 ## Dependency notes
 
-- `go.etcd.io/bbolt` v1.5.0 — used by `internal/store` (embedded DB at
-  `<user config dir>/Substrackt/substrackt.db`, buckets `accounts` and `settings`).
+- `modernc.org/sqlite` — pure-Go SQLite driver (no cgo). Used by `internal/store`.
 - `github.com/emersion/go-imap/v2` v2.0.0-beta.9 — used by `internal/mail`
   (implicit TLS by default, `Config.Insecure` for local test servers). The v2
-  API is pre-1.0: check signatures in the module before upgrading.
+  API is pre-1.0: check signatures in the module before upgrading. It is kept
+  for the email milestone; make sure the package still compiles if you touch it.
 - `wails3 build` runs `go mod tidy` first (`common:go:mod:tidy`), so a module
   that nothing imports is silently removed from `go.mod` on the next build. If
-  you swap these for other libraries, make sure real code imports them.
+  you add a library, make sure real code imports it.
 
 ## Verification checklist
 
 1. `go vet -tags gtk3 . ./internal/...` (with the shell environment described
    above; `./...` does not work — see Commands).
-2. `wails3 build` — must produce `bin/substrackt` with no pkg-config errors.
-3. `npm --prefix frontend run build` — must resolve every `frontend/bindings/*`
-   import.
+2. `go test -tags gtk3 ./internal/...` — domain billing, store CRUD/migrations
+   and service behaviour must stay green.
+3. `npm --prefix frontend run check` — 0 errors.
+4. `wails3 build` — must produce `bin/substrackt` with no pkg-config errors.

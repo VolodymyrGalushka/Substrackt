@@ -2,43 +2,43 @@ package main
 
 import (
 	"embed"
-
 	"log"
-	"time"
+	"os"
+	"path/filepath"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
+
+	appsvc "substrackt/internal/app"
+	"substrackt/internal/store"
 )
 
-// Wails uses Go's `embed` package to embed the frontend files into the binary.
-// Any files in the frontend/dist folder will be embedded into the binary and
-// made available to the frontend.
-// See https://pkg.go.dev/embed for more information.
-
+// Wails embeds the built frontend into the binary.
+//
 //go:embed all:frontend/dist
 var assets embed.FS
 
-func init() {
-	// Register a custom event whose associated data type is string.
-	// This is not required, but the binding generator will pick up registered events
-	// and provide a strongly typed JS/TS API for them.
-	application.RegisterEvent[string]("time")
-}
-
-// main function serves as the application's entry point. It initializes the application, creates a window,
-// and starts a goroutine that emits a time-based event every second. It subsequently runs the application and
-// logs any error that might occur.
 func main() {
+	dbPath, err := databasePath()
+	if err != nil {
+		log.Fatalf("resolve database path: %v", err)
+	}
 
-	// Create a new Wails application by providing the necessary options.
-	// Variables 'Name' and 'Description' are for application metadata.
-	// 'Assets' configures the asset server with the 'FS' variable pointing to the frontend files.
-	// 'Bind' is a list of Go struct instances. The frontend has access to the methods of these instances.
-	// 'Mac' options tailor the application when running an macOS.
-	app := application.New(application.Options{
+	st, err := store.Open(dbPath)
+	if err != nil {
+		log.Fatalf("open database: %v", err)
+	}
+	defer func() { _ = st.Close() }()
+
+	subscriptions := appsvc.NewSubscriptionsService(st)
+
+	wailsApp := application.New(application.Options{
 		Name:        "Substrackt",
-		Description: "Substrackt desktop app",
+		Description: "Track and manage your subscriptions",
 		Services: []application.Service{
-			application.NewService(&GreetService{}),
+			application.NewService(subscriptions),
+			application.NewService(appsvc.NewPaymentMethodsService(st)),
+			application.NewService(appsvc.NewVendorsService(st)),
+			application.NewService(appsvc.NewDashboardService(st, subscriptions)),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
@@ -48,40 +48,35 @@ func main() {
 		},
 	})
 
-	// Create a new window with the necessary options.
-	// 'Title' is the title of the window.
-	// 'Mac' options tailor the window when running on macOS.
-	// 'BackgroundColour' is the background colour of the window.
-	// 'URL' is the URL that will be loaded into the webview.
-	app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Title: "Window 1",
-		// Window sized to the golden ratio (1000 / 618 ≈ 1.618).
-		Width:  1000,
-		Height: 618,
-		Mac: application.MacWindow{
-			InvisibleTitleBarHeight: 50,
-			Backdrop:                application.MacBackdropTranslucent,
-			TitleBar:                application.MacTitleBarHiddenInset,
-		},
-		BackgroundColour: application.NewRGB(6, 7, 15),
+	wailsApp.Window.NewWithOptions(application.WebviewWindowOptions{
+		Title:            "Substrackt",
+		Width:            1280,
+		Height:           820,
+		MinWidth:         960,
+		MinHeight:        600,
+		BackgroundColour: application.NewRGB(9, 10, 14),
 		URL:              "/",
 	})
 
-	// Create a goroutine that emits an event containing the current time every second.
-	// The frontend can listen to this event and update the UI accordingly.
-	go func() {
-		for {
-			now := time.Now().Format(time.RFC1123)
-			app.Event.Emit("time", now)
-			time.Sleep(time.Second)
-		}
-	}()
-
-	// Run the application. This blocks until the application has been exited.
-	err := app.Run()
-
-	// If an error occurred while running the application, log it and exit.
-	if err != nil {
+	if err := wailsApp.Run(); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// databasePath returns the SQLite database location. Substrackt stores its data
+// in the user's config directory; SUBSTRACKT_HOME overrides it for tests and
+// development.
+func databasePath() (string, error) {
+	home := os.Getenv("SUBSTRACKT_HOME")
+	if home == "" {
+		dir, err := os.UserConfigDir()
+		if err != nil {
+			return "", err
+		}
+		home = filepath.Join(dir, "Substrackt")
+	}
+	if err := os.MkdirAll(home, 0o700); err != nil {
+		return "", err
+	}
+	return filepath.Join(home, "substrackt.db"), nil
 }

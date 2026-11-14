@@ -1,7 +1,12 @@
 # Substrackt
 
-An empty [Wails v3](https://v3.wails.io/) desktop application scaffold (vanilla
-TypeScript frontend), ready for feature work.
+A desktop app for tracking subscriptions: what you pay, how often, with which
+payment method, and when it renews next. Built with
+[Wails v3](https://v3.wails.io/) (Go backend) and Svelte 5 + TypeScript.
+
+Data lives in a local **SQLite** database — nothing leaves the machine. The
+longer-term plan (email ingestion with a local LLM, API connectors, browser
+scraping) is in [`docs/plan.md`](docs/plan.md).
 
 ## Requirements
 
@@ -27,26 +32,42 @@ delete that `EXTRA_TAGS` default to use Wails' upstream GTK4 / WebKitGTK 6.0 bac
 ## Commands
 
 ```sh
-wails3 dev              # run with hot reload
-wails3 build            # production build -> bin/substrackt
-wails3 build -tags gtk3 # explicit tags (already the default here)
+wails3 dev               # run with hot reload
+wails3 build             # production build -> bin/substrackt
 wails3 generate bindings # regenerate TS bindings after changing Go services
+npm --prefix frontend run check   # svelte-check (types + a11y)
+go test -tags gtk3 ./internal/... # domain, store and service tests
 ```
+
+## Where data is stored
+
+`<user config dir>/Substrackt/substrackt.db` (e.g. `~/.config/Substrackt/` on
+Linux). Set `SUBSTRACKT_HOME` to use a different directory.
 
 ## Layout
 
-- `main.go` — application entry point (window, services, assets)
-- `greetservice.go` — example service bound to the frontend
-- `internal/store/` — bbolt-backed local database (`accounts`, `settings` buckets)
-- `internal/mail/` — go-imap v2 client wrapper (dial, list mailboxes, select)
-- `frontend/` — Vite + TypeScript frontend (`src/`, `bindings/`)
-- `build/` — platform build assets and Taskfiles
-- `Taskfile.yml` — build/dev tasks used by `wails3`
+```
+main.go                 app entry: DB path, services, window, embedded assets
+internal/domain/        models, Money, calendar Date, billing math, ULID ids
+internal/store/         SQLite (modernc.org/sqlite), WAL, embedded migrations
+internal/app/           Wails-bound services, DTOs, mappers, tests
+internal/mail/          go-imap v2 client wrapper (kept for email ingestion)
+frontend/src/           Svelte 5 UI: routes, components, lib helpers
+frontend/bindings/      generated TS bindings (do not hand-edit)
+build/                  platform build assets and Taskfiles
+docs/plan.md            architecture, decisions and milestones
+```
+
+## Schema
+
+Migration `internal/store/migrations/0001_init.sql` creates `vendors`,
+`payment_methods` and `subscriptions`. Amounts are stored as integer minor units
+with a currency and scale (2 for USD, 8 for BTC); billing dates are calendar
+dates, so month-end clamping (Jan 31 → Feb 28) does not drift. Payment methods
+keep only non-sensitive metadata — never a full card number or CVV.
 
 ## Dependencies
 
-- `go.etcd.io/bbolt` v1.5.0 — embedded key/value store
-- `github.com/emersion/go-imap/v2` v2.0.0-beta.9 — IMAP client
-
-Both are used by the `internal/` packages above; `wails3 build` runs `go mod tidy`,
-so anything nothing imports gets pruned.
+- `modernc.org/sqlite` — pure-Go SQLite driver (no cgo).
+- `github.com/emersion/go-imap/v2` — IMAP client for the future email source.
+- `wails3 build` runs `go mod tidy`, so anything nothing imports gets pruned.
