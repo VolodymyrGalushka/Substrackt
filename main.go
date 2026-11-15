@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"embed"
 	"log"
 	"os"
@@ -9,6 +10,8 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 
 	appsvc "substrackt/internal/app"
+	"substrackt/internal/domain"
+	"substrackt/internal/jobs"
 	"substrackt/internal/store"
 )
 
@@ -30,6 +33,27 @@ func main() {
 	defer func() { _ = st.Close() }()
 
 	subscriptions := appsvc.NewSubscriptionsService(st)
+	review := appsvc.NewReviewService(st, subscriptions)
+	settings := appsvc.NewSettingsService(st)
+
+	jobManager := jobs.New(st, 2, jobs.Events{
+		OnProgress: func(job domain.Job) { emitEvent("job:progress", appsvc.JobDTO(job)) },
+		OnFinished: func(job domain.Job) { emitEvent("job:finished", appsvc.JobDTO(job)) },
+	})
+	ingestion := appsvc.NewIngestionHandler(st, subscriptions)
+	ingestion.SetReviewNotifier(func(item appsvc.ReviewItem) {
+		emitEvent("review:new", item)
+	})
+	jobManager.Handle(appsvc.ManualJobKind, ingestion.RunJob)
+
+	jobCtx := context.Background()
+	if recovered, err := jobManager.Recover(jobCtx); err != nil {
+		log.Printf("recover jobs: %v", err)
+	} else if recovered > 0 {
+		log.Printf("requeued %d interrupted job(s)", recovered)
+	}
+	jobManager.Start(jobCtx)
+	defer jobManager.Stop()
 
 	wailsApp := application.New(application.Options{
 		Name:        "Substrackt",
@@ -39,6 +63,10 @@ func main() {
 			application.NewService(appsvc.NewPaymentMethodsService(st)),
 			application.NewService(appsvc.NewVendorsService(st)),
 			application.NewService(appsvc.NewDashboardService(st, subscriptions)),
+			application.NewService(appsvc.NewJobsService(st, jobManager)),
+			application.NewService(review),
+			application.NewService(settings),
+			application.NewService(appsvc.NewIngestionService(jobManager)),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
@@ -61,6 +89,16 @@ func main() {
 	if err := wailsApp.Run(); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// emitEvent sends a frontend event when the application has started. Jobs can
+// finish before the window exists; those events are dropped harmlessly.
+func emitEvent(name string, data ...any) {
+	app := application.Get()
+	if app == nil || app.Event == nil {
+		return
+	}
+	app.Event.Emit(name, data...)
 }
 
 // databasePath returns the SQLite database location. Substrackt stores its data

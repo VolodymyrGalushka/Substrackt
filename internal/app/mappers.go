@@ -96,6 +96,94 @@ func paymentMethodDTO(pm domain.PaymentMethod) PaymentMethod {
 	}
 }
 
+// JobDTO maps a job for events emitted from main.
+func JobDTO(j domain.Job) Job { return jobDTO(j) }
+
+func jobDTO(j domain.Job) Job {
+	return Job{
+		ID:          j.ID,
+		Kind:        j.Kind,
+		Status:      string(j.Status),
+		Progress:    j.Progress,
+		Message:     j.Message,
+		Error:       j.Error,
+		Attempts:    j.Attempts,
+		MaxAttempts: j.MaxAttempts,
+		CreatedAt:   timeString(j.CreatedAt),
+		StartedAt:   timeString(j.StartedAt),
+		FinishedAt:  timeString(j.FinishedAt),
+		UpdatedAt:   timeString(j.UpdatedAt),
+	}
+}
+
+func reviewDTO(ex domain.Extraction, matchName string) ReviewItem {
+	return ReviewItem{
+		ID:                    ex.ID,
+		Status:                string(ex.Status),
+		Source:                ex.Source,
+		VendorName:            ex.VendorName,
+		Name:                  ex.Name,
+		Plan:                  ex.Plan,
+		Price:                 Money{AmountMinor: ex.AmountMinor, Currency: ex.Currency, Scale: ex.Scale},
+		IntervalCount:         ex.Interval.Count,
+		IntervalUnit:          string(ex.Interval.Unit),
+		AnchorDate:            dateString(ex.AnchorDate),
+		NextRenewal:           dateString(ex.NextRenewal),
+		DesiredStatus:         string(ex.DesiredStatus),
+		PaymentHint:           ex.PaymentHint,
+		Confidence:            ex.Confidence,
+		Model:                 ex.Model,
+		Rationale:             ex.Rationale,
+		Evidence:              ex.Evidence,
+		MatchSubscriptionID:   ex.MatchSubID,
+		MatchSubscriptionName: matchName,
+		MatchKind:             string(ex.MatchKind),
+		JobID:                 ex.JobID,
+		ArtifactID:            ex.ArtifactID,
+		CreatedAt:             timeString(ex.CreatedAt),
+		UpdatedAt:             timeString(ex.UpdatedAt),
+	}
+}
+
+func settingsDTO(s domain.Settings) Settings {
+	return Settings{
+		Timezone:           s.Timezone,
+		BaseCurrency:       s.BaseCurrency,
+		LLMBaseURL:         s.LLMBaseURL,
+		LLMModel:           s.LLMModel,
+		LLMTimeoutSeconds:  s.LLMTimeoutSeconds,
+		AutoApply:          s.AutoApply,
+		AutoApplyThreshold: s.AutoApplyThreshold,
+	}
+}
+
+func settingsDomain(s Settings) domain.Settings {
+	return domain.Settings{
+		Timezone:           s.Timezone,
+		BaseCurrency:       s.BaseCurrency,
+		LLMBaseURL:         s.LLMBaseURL,
+		LLMModel:           s.LLMModel,
+		LLMTimeoutSeconds:  s.LLMTimeoutSeconds,
+		AutoApply:          s.AutoApply,
+		AutoApplyThreshold: s.AutoApplyThreshold,
+	}
+}
+
+func llmUsageDTO(u domain.LLMUsage) LLMUsage {
+	return LLMUsage{
+		ID:               u.ID,
+		Model:            u.Model,
+		BaseURL:          u.BaseURL,
+		PromptTokens:     u.PromptTokens,
+		CompletionTokens: u.CompletionTokens,
+		LatencyMS:        u.LatencyMS,
+		OK:               u.OK,
+		Cached:           u.Cached,
+		Error:            u.Error,
+		CreatedAt:        timeString(u.CreatedAt),
+	}
+}
+
 func vendorDTO(v domain.Vendor) Vendor {
 	domains := v.Domains
 	if domains == nil {

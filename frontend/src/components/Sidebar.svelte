@@ -5,11 +5,22 @@
   const items: { route: Route; label: string; icon: string }[] = [
     { route: "dashboard", label: "Dashboard", icon: "◧" },
     { route: "subscriptions", label: "Subscriptions", icon: "≡" },
+    { route: "review", label: "Review queue", icon: "◎" },
+    { route: "activity", label: "Activity", icon: "↻" },
     { route: "payment-methods", label: "Payment methods", icon: "◫" },
+    { route: "settings", label: "Settings", icon: "⚙" },
   ];
 
   const activeCount = $derived(store.summary?.activeCount ?? 0);
   const trialCount = $derived(store.summary?.trialCount ?? 0);
+  const runningCount = $derived((store.jobCounts?.queued ?? 0) + (store.jobCounts?.running ?? 0));
+
+  function badge(route: Route): number {
+    if (route === "subscriptions") return activeCount + trialCount;
+    if (route === "review") return store.reviewCount;
+    if (route === "activity") return runningCount;
+    return 0;
+  }
 </script>
 
 <aside class="sidebar">
@@ -30,8 +41,8 @@
       >
         <span class="nav-icon" aria-hidden="true">{item.icon}</span>
         {item.label}
-        {#if item.route === "subscriptions" && activeCount + trialCount > 0}
-          <span class="nav-count">{activeCount + trialCount}</span>
+        {#if badge(item.route) > 0}
+          <span class="nav-count" class:warn={item.route === "review"}>{badge(item.route)}</span>
         {/if}
       </button>
     {/each}

@@ -2,17 +2,40 @@
 // generated paths directly and the generated API can change in one place.
 import {
   DashboardService,
+  IngestionService,
+  JobsService,
   PaymentMethodsService,
+  ReviewService,
+  SettingsService,
   SubscriptionsService,
   VendorsService,
 } from "../../bindings/substrackt/internal/app";
 
-export { DashboardService, PaymentMethodsService, SubscriptionsService, VendorsService };
+export {
+  DashboardService,
+  IngestionService,
+  JobsService,
+  PaymentMethodsService,
+  ReviewService,
+  SettingsService,
+  SubscriptionsService,
+  VendorsService,
+};
 export type {
   DashboardSummary,
+  Job,
+  JobCounts,
+  LLMTestResult,
+  LLMUsage,
+  ManualInput,
   Money,
   PaymentMethod,
   PaymentMethodInput,
+  ReviewAcceptInput,
+  ReviewBulkResult,
+  ReviewFailure,
+  ReviewItem,
+  Settings,
   SpendBucket,
   Subscription,
   SubscriptionFilter,

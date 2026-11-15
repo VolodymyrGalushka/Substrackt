@@ -93,7 +93,7 @@ func (d *DashboardService) Summary(upcomingDays int) (DashboardSummary, error) {
 	sortMoney(summary.MonthlyTotals)
 	sortMoney(summary.YearlyTotals)
 
-	upcoming, err := d.store.UpcomingRenewals(ctx, domain.Today(), upcomingDays)
+	upcoming, err := d.store.UpcomingRenewals(ctx, appToday(ctx, d.store), upcomingDays)
 	if err != nil {
 		return DashboardSummary{}, err
 	}

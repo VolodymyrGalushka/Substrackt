@@ -93,6 +93,7 @@
       intervalCount: Math.max(1, Number(form.intervalCount) || 1),
       intervalUnit: form.intervalUnit,
       anchorDate: form.anchorDate,
+      nextRenewal: "",
       autoRenew: form.autoRenew,
       paymentMethodId: form.paymentMethodId,
       tags: form.tags

@@ -55,9 +55,13 @@ matching, dedupe and the review queue are written once.
 - `charges` — payment history for analytics (milestone 6).
 - `sources` — ingestion channel config (typed JSON), secret reference, schedule,
   health.
-- `artifacts` — raw evidence (email, HTML, JSON, screenshot) for audit/debug.
+- `artifacts` — raw evidence (email, HTML, JSON, screenshot) for audit/debug,
+  redacted of PANs/CVVs before storage.
 - `extractions` — review-queue proposals with confidence and model.
 - `jobs`, `mailbox_cursors`, `settings`, `schema_migrations`.
+- `llm_cache` — extraction results keyed by model + prompt version + content hash.
+- `llm_usage` — one audit row per model call (counters, latency, cached flag);
+  prompts and responses are never stored.
 
 Renewal dates are calendar dates, not instants, and are rendered in the user's
 timezone. Billing math handles month-end clamping (Jan 31 → Feb 28) and
@@ -72,12 +76,14 @@ monthly-equivalent normalisation per currency.
 | `Vendors` | list/create/update/delete |
 | `Dashboard` | summary (spend, upcoming, by payment method) |
 | `Sources` (M3) | CRUD, test, sync now, interactive login |
-| `Review` (M2) | pending list, accept/reject, bulk accept |
-| `Jobs` (M2) | list, cancel, retry |
-| `Settings` (M2) | LLM endpoint/model config, timezone, base currency |
+| `Review` | pending list, get, count, accept/reject, bulk accept |
+| `Jobs` | list, get, cancel, retry, counts |
+| `Settings` | get/update/reset, LLM endpoint test, usage log |
+| `Ingestion` (M2) | manual text import (queues a job) |
 
-Events: `subscription:changed`, `job:progress`, `job:finished`, `review:new`,
-`source:status`.
+Events: `subscription:changed`, `payment-method:changed`, `vendor:changed`,
+`job:progress`, `job:finished`, `review:new`, `review:changed`,
+`settings:changed`, `source:status` (M3).
 
 ## Ingestion pipeline
 
@@ -99,17 +105,17 @@ Events: `subscription:changed`, `job:progress`, `job:finished`, `review:new`,
 
 | Milestone | Status | Contents |
 | --- | --- | --- |
-| **M1 — core** | in progress | SQLite store + migrations, domain + billing tests, subscriptions / payment methods / vendors services, Svelte shell, dashboard, subscription editor |
-| M2 | next | jobs + events, settings + local LLM client, review queue, manual ingestion through the pipeline |
-| M3 | | email source (IMAP cursors, artifacts), classification/extraction, heuristics fallback |
+| **M1 — core** | done | SQLite store + migrations, domain + billing tests, subscriptions / payment methods / vendors services, Svelte shell, dashboard, subscription editor |
+| **M2 — ingestion core** | done | jobs + events, settings + local LLM client, review queue, manual ingestion through the pipeline, review/activity/settings UI |
+| M3 | next | email source (IMAP cursors, artifacts), classification/extraction, heuristics fallback |
 | M4 | | Playwright framework, interactive login, first vendor connector |
 | M5 | | declarative API connectors, OAuth loopback |
 | M6 | | renewals/notifications, spend history from charges, export/import |
 
-## Non-goals for M1
+## Non-goals for M2
 
-- No ingestion channels yet (email/API/browser) — the UI is read/write over
-  manual data only.
+- No automated ingestion channels yet (email/API/browser); manual pasted text is
+  the only source. The pipeline is written so they produce the same `RawItem`.
 - No charge history, no notifications, no multi-currency conversion (totals are
   reported per currency rather than silently summed).
 - No cloud LLM support of any kind.

@@ -37,15 +37,18 @@ type Subscription struct {
 
 // SubscriptionInput is the payload for creating or updating a subscription.
 type SubscriptionInput struct {
-	Name            string   `json:"name"`
-	Plan            string   `json:"plan"`
-	VendorID        string   `json:"vendorId"`
-	VendorName      string   `json:"vendorName"`
-	Status          string   `json:"status"`
-	Price           Money    `json:"price"`
-	IntervalCount   int      `json:"intervalCount"`
-	IntervalUnit    string   `json:"intervalUnit"`
-	AnchorDate      string   `json:"anchorDate"`
+	Name          string `json:"name"`
+	Plan          string `json:"plan"`
+	VendorID      string `json:"vendorId"`
+	VendorName    string `json:"vendorName"`
+	Status        string `json:"status"`
+	Price         Money  `json:"price"`
+	IntervalCount int    `json:"intervalCount"`
+	IntervalUnit  string `json:"intervalUnit"`
+	AnchorDate    string `json:"anchorDate"`
+	// NextRenewal is optional. When set (for example by the review queue) the
+	// service keeps it instead of recomputing from the anchor.
+	NextRenewal     string   `json:"nextRenewal"`
 	AutoRenew       bool     `json:"autoRenew"`
 	PaymentMethodID string   `json:"paymentMethodId"`
 	Tags            []string `json:"tags"`
@@ -138,4 +141,128 @@ type DashboardSummary struct {
 	Upcoming        []Subscription `json:"upcoming"`
 	ByPaymentMethod []SpendBucket  `json:"byPaymentMethod"`
 	ByVendor        []SpendBucket  `json:"byVendor"`
+}
+
+// Job is a background job as seen by the frontend.
+type Job struct {
+	ID          string `json:"id"`
+	Kind        string `json:"kind"`
+	Status      string `json:"status"`
+	Progress    int    `json:"progress"`
+	Message     string `json:"message"`
+	Error       string `json:"error"`
+	Attempts    int    `json:"attempts"`
+	MaxAttempts int    `json:"maxAttempts"`
+	CreatedAt   string `json:"createdAt"`
+	StartedAt   string `json:"startedAt"`
+	FinishedAt  string `json:"finishedAt"`
+	UpdatedAt   string `json:"updatedAt"`
+}
+
+// JobCounts summarises the queue for badges.
+type JobCounts struct {
+	Queued    int `json:"queued"`
+	Running   int `json:"running"`
+	Succeeded int `json:"succeeded"`
+	Failed    int `json:"failed"`
+	Cancelled int `json:"cancelled"`
+}
+
+// ReviewItem is a pending or resolved ingestion proposal.
+type ReviewItem struct {
+	ID                    string  `json:"id"`
+	Status                string  `json:"status"`
+	Source                string  `json:"source"`
+	VendorName            string  `json:"vendorName"`
+	Name                  string  `json:"name"`
+	Plan                  string  `json:"plan"`
+	Price                 Money   `json:"price"`
+	IntervalCount         int     `json:"intervalCount"`
+	IntervalUnit          string  `json:"intervalUnit"`
+	AnchorDate            string  `json:"anchorDate"`
+	NextRenewal           string  `json:"nextRenewal"`
+	DesiredStatus         string  `json:"desiredStatus"`
+	PaymentHint           string  `json:"paymentHint"`
+	Confidence            float64 `json:"confidence"`
+	Model                 string  `json:"model"`
+	Rationale             string  `json:"rationale"`
+	Evidence              string  `json:"evidence"`
+	MatchSubscriptionID   string  `json:"matchSubscriptionId"`
+	MatchSubscriptionName string  `json:"matchSubscriptionName"`
+	MatchKind             string  `json:"matchKind"`
+	JobID                 string  `json:"jobId"`
+	ArtifactID            string  `json:"artifactId"`
+	CreatedAt             string  `json:"createdAt"`
+	UpdatedAt             string  `json:"updatedAt"`
+}
+
+// ReviewAcceptInput is the subscription the user approves. Zero values fall back
+// to the extracted proposal, so the frontend can send only edited fields.
+type ReviewAcceptInput struct {
+	VendorName      string   `json:"vendorName"`
+	Name            string   `json:"name"`
+	Plan            string   `json:"plan"`
+	AmountMinor     int64    `json:"amountMinor"`
+	Currency        string   `json:"currency"`
+	Scale           int      `json:"scale"`
+	IntervalCount   int      `json:"intervalCount"`
+	IntervalUnit    string   `json:"intervalUnit"`
+	AnchorDate      string   `json:"anchorDate"`
+	NextRenewal     string   `json:"nextRenewal"`
+	Status          string   `json:"status"`
+	PaymentMethodID string   `json:"paymentMethodId"`
+	Tags            []string `json:"tags"`
+	Notes           string   `json:"notes"`
+}
+
+// ReviewFailure describes one item that bulk accept could not apply.
+type ReviewFailure struct {
+	ID    string `json:"id"`
+	Error string `json:"error"`
+}
+
+// ReviewBulkResult reports the outcome of a bulk accept.
+type ReviewBulkResult struct {
+	Accepted int             `json:"accepted"`
+	Failed   []ReviewFailure `json:"failed"`
+}
+
+// ManualInput is pasted evidence for the manual ingestion channel.
+type ManualInput struct {
+	Title      string `json:"title"`
+	Content    string `json:"content"`
+	VendorHint string `json:"vendorHint"`
+	OccurredAt string `json:"occurredAt"`
+}
+
+// Settings are the application-wide preferences.
+type Settings struct {
+	Timezone           string  `json:"timezone"`
+	BaseCurrency       string  `json:"baseCurrency"`
+	LLMBaseURL         string  `json:"llmBaseUrl"`
+	LLMModel           string  `json:"llmModel"`
+	LLMTimeoutSeconds  int     `json:"llmTimeoutSeconds"`
+	AutoApply          bool    `json:"autoApply"`
+	AutoApplyThreshold float64 `json:"autoApplyThreshold"`
+}
+
+// LLMTestResult is the outcome of probing the local endpoint.
+type LLMTestResult struct {
+	OK     bool     `json:"ok"`
+	Models []string `json:"models"`
+	Error  string   `json:"error"`
+}
+
+// LLMUsage is one audited model call.
+type LLMUsage struct {
+	ID               string `json:"id"`
+	Model            string `json:"model"`
+	BaseURL          string `json:"baseUrl"`
+	PromptTokens     int    `json:"promptTokens"`
+	CompletionTokens int    `json:"completionTokens"`
+	LatencyMS        int64  `json:"latencyMs"`
+	OK               bool   `json:"ok"`
+	Cached           bool   `json:"cached"`
+	Error            string `json:"error"`
+	CreatedAt        string `json:"createdAt"`
 }

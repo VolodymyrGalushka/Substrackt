@@ -1,6 +1,13 @@
-export type Route = "dashboard" | "subscriptions" | "payment-methods";
+export type Route = "dashboard" | "subscriptions" | "review" | "activity" | "payment-methods" | "settings";
 
-const ROUTES: Route[] = ["dashboard", "subscriptions", "payment-methods"];
+const ROUTES: Route[] = [
+  "dashboard",
+  "subscriptions",
+  "review",
+  "activity",
+  "payment-methods",
+  "settings",
+];
 
 function current(): Route {
   if (typeof window === "undefined") return "dashboard";

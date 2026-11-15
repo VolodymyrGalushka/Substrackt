@@ -17,6 +17,70 @@ export interface DashboardSummary {
 }
 
 /**
+ * Job is a background job as seen by the frontend.
+ */
+export interface Job {
+    "id": string;
+    "kind": string;
+    "status": string;
+    "progress": number;
+    "message": string;
+    "error": string;
+    "attempts": number;
+    "maxAttempts": number;
+    "createdAt": string;
+    "startedAt": string;
+    "finishedAt": string;
+    "updatedAt": string;
+}
+
+/**
+ * JobCounts summarises the queue for badges.
+ */
+export interface JobCounts {
+    "queued": number;
+    "running": number;
+    "succeeded": number;
+    "failed": number;
+    "cancelled": number;
+}
+
+/**
+ * LLMTestResult is the outcome of probing the local endpoint.
+ */
+export interface LLMTestResult {
+    "ok": boolean;
+    "models": string[] | null;
+    "error": string;
+}
+
+/**
+ * LLMUsage is one audited model call.
+ */
+export interface LLMUsage {
+    "id": string;
+    "model": string;
+    "baseUrl": string;
+    "promptTokens": number;
+    "completionTokens": number;
+    "latencyMs": number;
+    "ok": boolean;
+    "cached": boolean;
+    "error": string;
+    "createdAt": string;
+}
+
+/**
+ * ManualInput is pasted evidence for the manual ingestion channel.
+ */
+export interface ManualInput {
+    "title": string;
+    "content": string;
+    "vendorHint": string;
+    "occurredAt": string;
+}
+
+/**
  * Money is an amount in minor units plus its currency and scale.
  */
 export interface Money {
@@ -62,6 +126,86 @@ export interface PaymentMethodInput {
     "billingCurrency": string;
     "active": boolean;
     "notes": string;
+}
+
+/**
+ * ReviewAcceptInput is the subscription the user approves. Zero values fall back
+ * to the extracted proposal, so the frontend can send only edited fields.
+ */
+export interface ReviewAcceptInput {
+    "vendorName": string;
+    "name": string;
+    "plan": string;
+    "amountMinor": number;
+    "currency": string;
+    "scale": number;
+    "intervalCount": number;
+    "intervalUnit": string;
+    "anchorDate": string;
+    "nextRenewal": string;
+    "status": string;
+    "paymentMethodId": string;
+    "tags": string[] | null;
+    "notes": string;
+}
+
+/**
+ * ReviewBulkResult reports the outcome of a bulk accept.
+ */
+export interface ReviewBulkResult {
+    "accepted": number;
+    "failed": ReviewFailure[] | null;
+}
+
+/**
+ * ReviewFailure describes one item that bulk accept could not apply.
+ */
+export interface ReviewFailure {
+    "id": string;
+    "error": string;
+}
+
+/**
+ * ReviewItem is a pending or resolved ingestion proposal.
+ */
+export interface ReviewItem {
+    "id": string;
+    "status": string;
+    "source": string;
+    "vendorName": string;
+    "name": string;
+    "plan": string;
+    "price": Money;
+    "intervalCount": number;
+    "intervalUnit": string;
+    "anchorDate": string;
+    "nextRenewal": string;
+    "desiredStatus": string;
+    "paymentHint": string;
+    "confidence": number;
+    "model": string;
+    "rationale": string;
+    "evidence": string;
+    "matchSubscriptionId": string;
+    "matchSubscriptionName": string;
+    "matchKind": string;
+    "jobId": string;
+    "artifactId": string;
+    "createdAt": string;
+    "updatedAt": string;
+}
+
+/**
+ * Settings are the application-wide preferences.
+ */
+export interface Settings {
+    "timezone": string;
+    "baseCurrency": string;
+    "llmBaseUrl": string;
+    "llmModel": string;
+    "llmTimeoutSeconds": number;
+    "autoApply": boolean;
+    "autoApplyThreshold": number;
 }
 
 /**
@@ -125,6 +269,12 @@ export interface SubscriptionInput {
     "intervalCount": number;
     "intervalUnit": string;
     "anchorDate": string;
+
+    /**
+     * NextRenewal is optional. When set (for example by the review queue) the
+     * service keeps it instead of recomputing from the anchor.
+     */
+    "nextRenewal": string;
     "autoRenew": boolean;
     "paymentMethodId": string;
     "tags": string[] | null;

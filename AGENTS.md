@@ -64,7 +64,7 @@ because this host has `gtk+-3.0` + `webkit2gtk-4.1` dev packages but **not**
 ```sh
 wails3 dev                        # dev mode (hot reload, vite on WAILS_VITE_PORT)
 wails3 build                      # production build -> bin/substrackt
-wails3 generate bindings          # regenerate TS bindings after changing Go services
+wails3 generate bindings -ts -i   # regenerate TS bindings after changing Go services
 go build -tags gtk3 . ./internal/...
 go vet -tags gtk3 . ./internal/...
 go test -tags gtk3 ./internal/...
@@ -83,6 +83,9 @@ internal/domain/        models, Money, calendar Date, billing math, ULID ids
 internal/store/         SQLite store: open/WAL, migrations, repositories
 internal/store/migrations/*.sql   embedded schema migrations (add new files, never edit applied ones)
 internal/app/           Wails-bound services, DTOs, mappers, tests
+internal/ingest/        normalization, dedupe, heuristics, extraction pipeline
+internal/jobs/          persisted job queue with a cancellable worker pool
+internal/llm/           local OpenAI-compatible client (public hosts rejected)
 internal/mail/          go-imap/v2 client wrapper (for the future email source)
 frontend/src/           Svelte 5 UI: routes/, components/, lib/
 frontend/bindings/      generated TS bindings (do not hand-edit)
@@ -107,7 +110,21 @@ docs/plan.md            architecture and milestones
 - Empty optional foreign keys (`vendor_id`, `payment_method_id`) must be written
   as SQL `NULL` (see `store.nullString`), otherwise the foreign keys fail.
 - SQLite runs with `SetMaxOpenConns(1)` and WAL; new tables go in a **new**
-  numbered migration, because `0001_init.sql` is already applied everywhere.
+  numbered migration, because `0001_init.sql` is already applied everywhere
+  (`0002_ingestion.sql` adds jobs, artifacts, extractions, settings and LLM
+  cache/usage).
+- The ingestion pipeline (`internal/ingest`) is channel-agnostic: every source
+  produces a `RawItem` and shares normalize → dedupe (SHA-256) → extract →
+  match. Heuristic confidence is capped at 0.85, below the default 0.9
+  auto-apply threshold, so rules-only results always go to review.
+- `internal/llm` only accepts loopback, private/link-local addresses, bare
+  service names and local suffixes; never public hosts, credentials or
+  query/fragment. Keep it that way.
+- Background jobs are persisted and claimed atomically. Handlers must return
+  promptly when their context is cancelled. The bound `IngestionService` only
+  queues jobs; `IngestionHandler` (not a Wails service) executes them, so
+  function-typed methods never appear in the bindings.
+- Artifacts are redacted before storage; never persist PANs or CVVs.
 
 ## Conventions
 
@@ -115,7 +132,8 @@ docs/plan.md            architecture and milestones
   `frontend/bindings/substrackt`; `frontend/src/lib/api.ts` is the only file that
   imports them, so the generated surface changes in one place.
 - Any Go change that adds/removes/renames a bound method or DTO requires
-  regenerating bindings (`wails3 generate bindings`) or the frontend build breaks.
+  regenerating bindings (`wails3 generate bindings -ts -i`) or the frontend
+  build breaks.
 - Product metadata lives in `build/config.yml`; after editing `info` or
   `fileAssociations`, run `wails3 task common:update:build-assets`.
 - Frontend entry points: `src/main.ts` mounts `App.svelte`; routing is hash-based

@@ -59,7 +59,7 @@ func (s *SubscriptionsService) Get(id string) (Subscription, error) {
 // Upcoming returns billable subscriptions renewing within the next days days.
 func (s *SubscriptionsService) Upcoming(days int) ([]Subscription, error) {
 	ctx := context.Background()
-	subs, err := s.store.UpcomingRenewals(ctx, domain.Today(), days)
+	subs, err := s.store.UpcomingRenewals(ctx, s.today(ctx), days)
 	if err != nil {
 		return nil, err
 	}
@@ -75,7 +75,9 @@ func (s *SubscriptionsService) Create(in SubscriptionInput) (Subscription, error
 		return Subscription{}, err
 	}
 	sub.ID = ""
-	sub.RecomputeNextRenewal(domain.Today())
+	if sub.NextRenewal.IsZero() {
+		sub.RecomputeNextRenewal(s.today(ctx))
+	}
 
 	if err := s.store.CreateSubscription(ctx, &sub); err != nil {
 		return Subscription{}, err
@@ -101,7 +103,9 @@ func (s *SubscriptionsService) Update(id string, in SubscriptionInput) (Subscrip
 	if err != nil {
 		return Subscription{}, err
 	}
-	updated.RecomputeNextRenewal(domain.Today())
+	if updated.NextRenewal.IsZero() {
+		updated.RecomputeNextRenewal(s.today(ctx))
+	}
 
 	if err := s.store.UpdateSubscription(ctx, &updated); err != nil {
 		return Subscription{}, err
@@ -132,14 +136,14 @@ func (s *SubscriptionsService) SetStatus(id, status string) (Subscription, error
 		return s.toDTO(ctx, sub)
 	}
 
+	today := s.today(ctx)
 	sub.Status = st
 	if st == domain.StatusCancelled || st == domain.StatusExpired {
-		today := domain.Today()
 		sub.CancelledAt = &today
 	} else {
 		sub.CancelledAt = nil
 	}
-	sub.RecomputeNextRenewal(domain.Today())
+	sub.RecomputeNextRenewal(today)
 
 	if err := s.store.UpdateSubscription(ctx, &sub); err != nil {
 		return Subscription{}, err
@@ -196,6 +200,16 @@ func (s *SubscriptionsService) fromInput(ctx context.Context, base domain.Subscr
 			return domain.Subscription{}, err
 		}
 		sub.AnchorDate = d
+	}
+
+	if next := strings.TrimSpace(in.NextRenewal); next != "" {
+		d, err := domain.ParseDate(next)
+		if err != nil {
+			return domain.Subscription{}, err
+		}
+		sub.NextRenewal = d
+	} else {
+		sub.NextRenewal = domain.Date{}
 	}
 
 	if in.StartedAt != "" {

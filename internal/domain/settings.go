@@ -1,0 +1,93 @@
+package domain
+
+import (
+	"fmt"
+	"strings"
+	"time"
+)
+
+// DefaultAutoApplyThreshold is the confidence at or above which an unambiguous
+// extraction may be applied without review. Heuristic extraction is capped
+// below this value, so only an LLM can auto-apply.
+const DefaultAutoApplyThreshold = 0.9
+
+// Settings are the application-wide preferences stored in SQLite.
+type Settings struct {
+	// Timezone is an IANA name used to decide what "today" is. Empty means the
+	// host's local timezone.
+	Timezone string
+	// BaseCurrency is the fallback currency when a source omits one.
+	BaseCurrency string
+	// LLMBaseURL is an OpenAI-compatible local/self-hosted endpoint. It is never
+	// allowed to point at a public host.
+	LLMBaseURL string
+	LLMModel   string
+	// LLMTimeoutSeconds bounds a single extraction request.
+	LLMTimeoutSeconds int
+	// AutoApply lets unambiguous, high-confidence proposals create
+	// subscriptions directly instead of waiting in the review queue.
+	AutoApply          bool
+	AutoApplyThreshold float64
+}
+
+// DefaultSettings returns the settings used before the user saves any.
+func DefaultSettings() Settings {
+	return Settings{
+		BaseCurrency:       "USD",
+		LLMTimeoutSeconds:  60,
+		AutoApply:          true,
+		AutoApplyThreshold: DefaultAutoApplyThreshold,
+	}
+}
+
+// Normalize trims and canonicalises user input.
+func (s *Settings) Normalize() {
+	s.Timezone = strings.TrimSpace(s.Timezone)
+	s.BaseCurrency = strings.ToUpper(strings.TrimSpace(s.BaseCurrency))
+	s.LLMBaseURL = strings.TrimSpace(s.LLMBaseURL)
+	s.LLMModel = strings.TrimSpace(s.LLMModel)
+}
+
+// Validate checks the settings that do not depend on the LLM transport. The
+// endpoint's locality is enforced by the llm package, which owns that policy.
+func (s Settings) Validate() error {
+	if s.Timezone != "" {
+		if _, err := time.LoadLocation(s.Timezone); err != nil {
+			return fmt.Errorf("unknown timezone %q", s.Timezone)
+		}
+	}
+	if s.BaseCurrency == "" {
+		return fmt.Errorf("base currency is required")
+	}
+	if !currencyCode(s.BaseCurrency) {
+		return fmt.Errorf("invalid base currency %q", s.BaseCurrency)
+	}
+	if s.LLMTimeoutSeconds < 1 || s.LLMTimeoutSeconds > 600 {
+		return fmt.Errorf("LLM timeout must be between 1 and 600 seconds")
+	}
+	if s.AutoApplyThreshold < 0 || s.AutoApplyThreshold > 1 {
+		return fmt.Errorf("auto-apply threshold %v out of range 0-1", s.AutoApplyThreshold)
+	}
+	if s.LLMBaseURL != "" && s.LLMModel == "" {
+		return fmt.Errorf("an LLM model is required when an endpoint is configured")
+	}
+	if s.LLMBaseURL == "" && s.LLMModel != "" {
+		return fmt.Errorf("an LLM endpoint is required when a model is configured")
+	}
+	return nil
+}
+
+// LLMEnabled reports whether a local extraction endpoint is configured.
+func (s Settings) LLMEnabled() bool { return s.LLMBaseURL != "" && s.LLMModel != "" }
+
+func currencyCode(s string) bool {
+	if len(s) < 2 || len(s) > 10 {
+		return false
+	}
+	for _, r := range s {
+		if r < 'A' || r > 'Z' {
+			return false
+		}
+	}
+	return true
+}
