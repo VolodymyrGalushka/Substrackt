@@ -266,3 +266,48 @@ type LLMUsage struct {
 	Error            string `json:"error"`
 	CreatedAt        string `json:"createdAt"`
 }
+
+// SourceConfig is the typed configuration of an ingestion channel as seen by
+// the frontend. Credentials are never part of it.
+type SourceConfig struct {
+	Address     string `json:"address"`
+	Username    string `json:"username"`
+	Mailbox     string `json:"mailbox"`
+	Insecure    bool   `json:"insecure"`
+	InitialDays int    `json:"initialDays"`
+	MaxMessages int    `json:"maxMessages"`
+}
+
+// Source is a configured ingestion channel as seen by the frontend.
+type Source struct {
+	ID              string       `json:"id"`
+	Kind            string       `json:"kind"`
+	Name            string       `json:"name"`
+	Enabled         bool         `json:"enabled"`
+	ScheduleMinutes int          `json:"scheduleMinutes"`
+	LastSyncAt      string       `json:"lastSyncAt"`
+	LastError       string       `json:"lastError"`
+	HasSecret       bool         `json:"hasSecret"`
+	Config          SourceConfig `json:"config"`
+	CreatedAt       string       `json:"createdAt"`
+	UpdatedAt       string       `json:"updatedAt"`
+}
+
+// SourceInput is the payload for creating or updating a source. Password is
+// write-only: it is stored in the secret store and never returned.
+type SourceInput struct {
+	Kind            string       `json:"kind"`
+	Name            string       `json:"name"`
+	Enabled         bool         `json:"enabled"`
+	ScheduleMinutes int          `json:"scheduleMinutes"`
+	Config          SourceConfig `json:"config"`
+	Password        string       `json:"password"`
+}
+
+// SourceTestResult reports the outcome of connecting to a source.
+type SourceTestResult struct {
+	OK       bool   `json:"ok"`
+	Mailbox  string `json:"mailbox"`
+	Messages int    `json:"messages"`
+	Error    string `json:"error"`
+}

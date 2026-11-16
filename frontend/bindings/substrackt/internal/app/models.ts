@@ -209,6 +209,59 @@ export interface Settings {
 }
 
 /**
+ * Source is a configured ingestion channel as seen by the frontend.
+ */
+export interface Source {
+    "id": string;
+    "kind": string;
+    "name": string;
+    "enabled": boolean;
+    "scheduleMinutes": number;
+    "lastSyncAt": string;
+    "lastError": string;
+    "hasSecret": boolean;
+    "config": SourceConfig;
+    "createdAt": string;
+    "updatedAt": string;
+}
+
+/**
+ * SourceConfig is the typed configuration of an ingestion channel as seen by
+ * the frontend. Credentials are never part of it.
+ */
+export interface SourceConfig {
+    "address": string;
+    "username": string;
+    "mailbox": string;
+    "insecure": boolean;
+    "initialDays": number;
+    "maxMessages": number;
+}
+
+/**
+ * SourceInput is the payload for creating or updating a source. Password is
+ * write-only: it is stored in the secret store and never returned.
+ */
+export interface SourceInput {
+    "kind": string;
+    "name": string;
+    "enabled": boolean;
+    "scheduleMinutes": number;
+    "config": SourceConfig;
+    "password": string;
+}
+
+/**
+ * SourceTestResult reports the outcome of connecting to a source.
+ */
+export interface SourceTestResult {
+    "ok": boolean;
+    "mailbox": string;
+    "messages": number;
+    "error": string;
+}
+
+/**
  * SpendBucket is a monthly-equivalent total for a grouping.
  */
 export interface SpendBucket {

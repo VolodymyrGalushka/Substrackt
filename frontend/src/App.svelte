@@ -9,12 +9,14 @@
   import PaymentMethods from "./routes/PaymentMethods.svelte";
   import Settings from "./routes/Settings.svelte";
   import { nav } from "./lib/router.svelte";
+  import Sources from "./routes/Sources.svelte";
   import {
     clearError,
     loadAll,
     loadJobs,
     loadReview,
     loadReviewCount,
+    loadSources,
     store,
   } from "./lib/state.svelte";
 
@@ -48,6 +50,11 @@
       Events.On("payment-method:changed", () => void loadAll()),
       Events.On("vendor:changed", () => void loadAll()),
       Events.On("settings:changed", () => void loadAll()),
+      Events.On("source:changed", () => void loadSources()),
+      Events.On("source:status", () => {
+        void loadSources();
+        void loadJobs();
+      }),
       Events.On("review:new", () => {
         void loadReview();
         void loadReviewCount();
@@ -81,6 +88,8 @@
       <Subscriptions />
     {:else if nav.route === "review"}
       <Review />
+    {:else if nav.route === "sources"}
+      <Sources />
     {:else if nav.route === "activity"}
       <Activity />
     {:else if nav.route === "payment-methods"}

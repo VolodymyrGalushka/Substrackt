@@ -12,6 +12,7 @@ import (
 	appsvc "substrackt/internal/app"
 	"substrackt/internal/domain"
 	"substrackt/internal/jobs"
+	"substrackt/internal/secrets"
 	"substrackt/internal/store"
 )
 
@@ -32,6 +33,11 @@ func main() {
 	}
 	defer func() { _ = st.Close() }()
 
+	secretStore, err := secrets.Open(filepath.Join(filepath.Dir(dbPath), "secrets"))
+	if err != nil {
+		log.Fatalf("open secret store: %v", err)
+	}
+
 	subscriptions := appsvc.NewSubscriptionsService(st)
 	review := appsvc.NewReviewService(st, subscriptions)
 	settings := appsvc.NewSettingsService(st)
@@ -44,16 +50,28 @@ func main() {
 	ingestion.SetReviewNotifier(func(item appsvc.ReviewItem) {
 		emitEvent("review:new", item)
 	})
+	emailHandler := appsvc.NewEmailHandler(st, secretStore, ingestion)
+	emailHandler.SetNotifier(func(src appsvc.Source) {
+		emitEvent("source:status", src)
+	})
 	jobManager.Handle(appsvc.ManualJobKind, ingestion.RunJob)
+	jobManager.Handle(appsvc.EmailJobKind, emailHandler.RunJob)
 
-	jobCtx := context.Background()
-	if recovered, err := jobManager.Recover(jobCtx); err != nil {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer func() {
+		cancel()
+		jobManager.Stop()
+	}()
+
+	if recovered, err := jobManager.Recover(ctx); err != nil {
 		log.Printf("recover jobs: %v", err)
 	} else if recovered > 0 {
 		log.Printf("requeued %d interrupted job(s)", recovered)
 	}
-	jobManager.Start(jobCtx)
-	defer jobManager.Stop()
+	jobManager.Start(ctx)
+
+	scheduler := appsvc.NewSourceScheduler(st, jobManager)
+	go scheduler.Run(ctx)
 
 	wailsApp := application.New(application.Options{
 		Name:        "Substrackt",
@@ -67,6 +85,7 @@ func main() {
 			application.NewService(review),
 			application.NewService(settings),
 			application.NewService(appsvc.NewIngestionService(jobManager)),
+			application.NewService(appsvc.NewSourcesService(st, secretStore, jobManager)),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),

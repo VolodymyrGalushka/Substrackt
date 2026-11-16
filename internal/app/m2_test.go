@@ -11,6 +11,7 @@ import (
 
 	"substrackt/internal/domain"
 	"substrackt/internal/jobs"
+	"substrackt/internal/secrets"
 	"substrackt/internal/store"
 )
 
@@ -23,8 +24,13 @@ type testApp struct {
 	settings *SettingsService
 	jobsvc   *JobsService
 	ingest   *IngestionService
+	sources  *SourcesService
+	email    *EmailHandler
+	secrets  secrets.Store
 	manager  *jobs.Manager
 	notified []ReviewItem
+	// sourceStatus collects source:status notifications from the email handler.
+	sourceStatus []Source
 }
 
 func newTestApp(t *testing.T) *testApp {
@@ -48,11 +54,20 @@ func newTestApp(t *testing.T) *testApp {
 		manager:  manager,
 	}
 	a.ingest = NewIngestionService(manager)
+	secretStore := secrets.NewMemoryStore()
 	handler := NewIngestionHandler(st, subs)
 	handler.SetReviewNotifier(func(item ReviewItem) {
 		a.notified = append(a.notified, item)
 	})
 	manager.Handle(ManualJobKind, handler.RunJob)
+
+	a.secrets = secretStore
+	a.sources = NewSourcesService(st, secretStore, manager)
+	a.email = NewEmailHandler(st, secretStore, handler)
+	a.email.SetNotifier(func(src Source) {
+		a.sourceStatus = append(a.sourceStatus, src)
+	})
+	manager.Handle(EmailJobKind, a.email.RunJob)
 	return a
 }
 

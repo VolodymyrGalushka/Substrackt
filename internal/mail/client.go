@@ -6,7 +6,10 @@ package mail
 
 import (
 	"fmt"
+	"sort"
+	"time"
 
+	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapclient"
 )
 
@@ -18,6 +21,23 @@ type Config struct {
 	// Insecure dials plain TCP instead of implicit TLS. Intended for local test
 	// servers only; real servers should use TLS on port 993.
 	Insecure bool
+}
+
+// MailboxInfo is the state of a selected mailbox.
+type MailboxInfo struct {
+	NumMessages uint32
+	UIDNext     uint32
+	UIDValidity uint32
+}
+
+// Message is one email returned by a sync.
+type Message struct {
+	UID       uint32
+	Subject   string
+	From      string
+	MessageID string
+	Date      time.Time
+	Text      string
 }
 
 // Client is an authenticated IMAP connection.
@@ -64,11 +84,129 @@ func (c *Client) Mailboxes(pattern string) ([]string, error) {
 
 // Select selects a mailbox for reading and returns its message count.
 func (c *Client) Select(mailbox string) (uint32, error) {
+	info, err := c.SelectInfo(mailbox)
+	if err != nil {
+		return 0, err
+	}
+	return info.NumMessages, nil
+}
+
+// SelectInfo selects a mailbox and returns its UID state.
+func (c *Client) SelectInfo(mailbox string) (MailboxInfo, error) {
 	data, err := c.c.Select(mailbox, nil).Wait()
 	if err != nil {
-		return 0, fmt.Errorf("select %s: %w", mailbox, err)
+		return MailboxInfo{}, fmt.Errorf("select %s: %w", mailbox, err)
 	}
-	return data.NumMessages, nil
+	return MailboxInfo{
+		NumMessages: data.NumMessages,
+		UIDNext:     uint32(data.UIDNext),
+		UIDValidity: data.UIDValidity,
+	}, nil
+}
+
+// FetchSince returns up to limit messages newer than lastUID. lastUID is the
+// last processed UID; when it is zero the first sync is bounded by since.
+func (c *Client) FetchSince(mailbox string, lastUID uint32, since time.Time, limit int) (MailboxInfo, []Message, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	info, err := c.SelectInfo(mailbox)
+	if err != nil {
+		return MailboxInfo{}, nil, err
+	}
+
+	criteria := &imap.SearchCriteria{}
+	if lastUID > 0 {
+		set := imap.UIDSet{}
+		set.AddRange(imap.UID(lastUID+1), 0) // 0 means "*"
+		criteria.UID = []imap.UIDSet{set}
+	} else if !since.IsZero() {
+		criteria.Since = since
+	}
+
+	found, err := c.c.UIDSearch(criteria, nil).Wait()
+	if err != nil {
+		return info, nil, fmt.Errorf("search %s: %w", mailbox, err)
+	}
+	uids := found.AllUIDs()
+	sort.Slice(uids, func(i, j int) bool { return uids[i] < uids[j] })
+	if len(uids) > limit {
+		uids = uids[:limit]
+	}
+	if len(uids) == 0 {
+		return info, nil, nil
+	}
+
+	fetch := c.c.Fetch(imap.UIDSetNum(uids...), &imap.FetchOptions{
+		UID:          true,
+		Envelope:     true,
+		InternalDate: true,
+		BodySection:  []*imap.FetchItemBodySection{{Peek: true}},
+	})
+	buffers, err := fetch.Collect()
+	if err != nil {
+		return info, nil, fmt.Errorf("fetch %s: %w", mailbox, err)
+	}
+
+	messages := make([]Message, 0, len(buffers))
+	for _, buffer := range buffers {
+		messages = append(messages, messageFromBuffer(buffer))
+	}
+	return info, messages, nil
+}
+
+func messageFromBuffer(buffer *imapclient.FetchMessageBuffer) Message {
+	message := Message{UID: uint32(buffer.UID)}
+	if buffer.Envelope != nil {
+		message.Subject = buffer.Envelope.Subject
+		message.MessageID = buffer.Envelope.MessageID
+		message.Date = buffer.Envelope.Date
+		if len(buffer.Envelope.From) > 0 {
+			message.From = formatAddress(buffer.Envelope.From[0])
+		}
+	}
+	if message.Date.IsZero() {
+		message.Date = buffer.InternalDate
+	}
+	if len(buffer.BodySection) > 0 {
+		if parsed, err := ParseMessage(buffer.BodySection[0].Bytes); err == nil {
+			if parsed.Subject != "" {
+				message.Subject = parsed.Subject
+			}
+			if parsed.From != "" {
+				message.From = parsed.From
+			}
+			if parsed.MessageID != "" {
+				message.MessageID = parsed.MessageID
+			}
+			if !parsed.Date.IsZero() {
+				message.Date = parsed.Date
+			}
+			message.Text = parsed.Body
+		}
+	}
+	return message
+}
+
+func formatAddress(addr imap.Address) string {
+	email := addr.Addr()
+	switch {
+	case addr.Name != "" && email != "":
+		return fmt.Sprintf("%s <%s>", addr.Name, email)
+	case addr.Name != "":
+		return addr.Name
+	default:
+		return email
+	}
+}
+
+// Abort closes the connection immediately without a LOGOUT round trip. It is
+// used to unblock a sync when its context is cancelled.
+func (c *Client) Abort() error {
+	if c == nil || c.c == nil {
+		return nil
+	}
+	return c.c.Close()
 }
 
 // Close logs out and closes the connection. It is safe to call on a nil client.

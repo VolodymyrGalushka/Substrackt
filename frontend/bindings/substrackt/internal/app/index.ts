@@ -7,6 +7,7 @@ import * as JobsService from "./jobsservice.js";
 import * as PaymentMethodsService from "./paymentmethodsservice.js";
 import * as ReviewService from "./reviewservice.js";
 import * as SettingsService from "./settingsservice.js";
+import * as SourcesService from "./sourcesservice.js";
 import * as SubscriptionsService from "./subscriptionsservice.js";
 import * as VendorsService from "./vendorsservice.js";
 export {
@@ -16,6 +17,7 @@ export {
     PaymentMethodsService,
     ReviewService,
     SettingsService,
+    SourcesService,
     SubscriptionsService,
     VendorsService
 };
@@ -35,6 +37,10 @@ export type {
     ReviewFailure,
     ReviewItem,
     Settings,
+    Source,
+    SourceConfig,
+    SourceInput,
+    SourceTestResult,
     SpendBucket,
     Subscription,
     SubscriptionFilter,

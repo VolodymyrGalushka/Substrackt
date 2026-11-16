@@ -75,7 +75,7 @@ monthly-equivalent normalisation per currency.
 | `PaymentMethods` | list/create/update/archive/delete |
 | `Vendors` | list/create/update/delete |
 | `Dashboard` | summary (spend, upcoming, by payment method) |
-| `Sources` (M3) | CRUD, test, sync now, interactive login |
+| `Sources` | email source CRUD, connection test, sync now, automatic schedule |
 | `Review` | pending list, get, count, accept/reject, bulk accept |
 | `Jobs` | list, get, cancel, retry, counts |
 | `Settings` | get/update/reset, LLM endpoint test, usage log |
@@ -83,23 +83,45 @@ monthly-equivalent normalisation per currency.
 
 Events: `subscription:changed`, `payment-method:changed`, `vendor:changed`,
 `job:progress`, `job:finished`, `review:new`, `review:changed`,
-`settings:changed`, `source:status` (M3).
+`settings:changed`, `source:changed`, `source:status`.
 
 ## Ingestion pipeline
 
-1. **Fetch** — per channel, incremental cursors (IMAP UID, API `since`, scraper
-   last-seen id).
-2. **Normalize** — MIME/HTML → canonical text, cap length, keep artifact.
+1. **Fetch** — per channel, incremental cursors (IMAP UID + UIDVALIDITY, API
+   `since`, scraper last-seen id).
+2. **Normalize** — MIME/HTML → canonical text, cap length, keep a redacted
+   artifact.
 3. **Dedupe** — content hash + external id.
-4. **Classify** — cheap rules first (vendor domains, receipt/renewal subjects),
-   LLM only for the ambiguous tail.
+4. **Classify** — cheap rules first. Obvious non-billing mail (newsletters,
+   shipping notices, security alerts) is dropped for the email channel before
+   any model call; billing and unknown mail continue.
 5. **Extract** — schema-validated JSON (vendor, plan, price, currency, interval,
    renewal, payment-method hint, confidence, quoted evidence), one repair retry,
-   cached by content hash. Regex heuristics when no LLM is configured.
+   cached by content hash. Regex heuristics when no LLM is configured or it
+   fails.
 6. **Match** — vendor domain/alias → external id → amount ±5% / date ±3 days /
    name similarity.
 7. **Apply** — auto-apply only when confidence and match are unambiguous;
    otherwise a review item. Price changes and cancellations always need review.
+
+## Email sources
+
+The **Sources** screen connects an IMAP mailbox (implicit TLS on 993 by default).
+Passwords are written to the OS keyring when it is reachable and to an encrypted
+0600 file under `<config dir>/Substrackt/secrets/` otherwise; they never enter
+SQLite, DTOs, logs or events. Each sync:
+
+1. reads the per-mailbox cursor (`uid_validity`, `last_uid`),
+2. searches only newer UIDs, or a bounded recent window on the first run,
+3. runs each message through the shared pipeline,
+4. advances the cursor after every successful message,
+5. stores `last_sync_at` / `last_error` and emits `source:status`.
+
+A changed `UIDVALIDITY` triggers a rescan of the recent window. A failed job
+(mailbox unreachable, bad password, pipeline error) stops before advancing the
+cursor for the failing message and records the error on the source. Enabled
+sources are polled on their schedule by a background scheduler; **Sync now** is
+always available.
 
 ## Milestones
 
@@ -107,15 +129,15 @@ Events: `subscription:changed`, `payment-method:changed`, `vendor:changed`,
 | --- | --- | --- |
 | **M1 — core** | done | SQLite store + migrations, domain + billing tests, subscriptions / payment methods / vendors services, Svelte shell, dashboard, subscription editor |
 | **M2 — ingestion core** | done | jobs + events, settings + local LLM client, review queue, manual ingestion through the pipeline, review/activity/settings UI |
-| M3 | next | email source (IMAP cursors, artifacts), classification/extraction, heuristics fallback |
-| M4 | | Playwright framework, interactive login, first vendor connector |
-| M5 | | declarative API connectors, OAuth loopback |
-| M6 | | renewals/notifications, spend history from charges, export/import |
+| **M3 — email source** | done | sources + secret store, IMAP cursors/artifacts, MIME parsing, email classification, scheduled and manual sync, Sources UI |
+| **M4** | next | Playwright framework, interactive login, first vendor connector |
+| **M5** | | declarative API connectors, OAuth loopback |
+| **M6** | | renewals/notifications, spend history from charges, export/import |
 
-## Non-goals for M2
+## Non-goals for M3
 
-- No automated ingestion channels yet (email/API/browser); manual pasted text is
-  the only source. The pipeline is written so they produce the same `RawItem`.
-- No charge history, no notifications, no multi-currency conversion (totals are
-  reported per currency rather than silently summed).
+- No API or browser channels yet; email and manual text both produce a
+  `RawItem` for the same downstream pipeline.
+- No interactive OAuth/login flows, charge history, notifications or
+  multi-currency conversion (totals are reported per currency).
 - No cloud LLM support of any kind.

@@ -6,6 +6,7 @@
     { route: "dashboard", label: "Dashboard", icon: "◧" },
     { route: "subscriptions", label: "Subscriptions", icon: "≡" },
     { route: "review", label: "Review queue", icon: "◎" },
+    { route: "sources", label: "Sources", icon: "⇣" },
     { route: "activity", label: "Activity", icon: "↻" },
     { route: "payment-methods", label: "Payment methods", icon: "◫" },
     { route: "settings", label: "Settings", icon: "⚙" },

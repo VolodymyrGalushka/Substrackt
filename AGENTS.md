@@ -6,20 +6,21 @@ Guidance for AI agents and contributors working in this repository.
 
 **Substrackt** is a [Wails v3](https://v3.wails.io/) desktop application (Go
 backend + Svelte 5/TypeScript frontend) that tracks subscriptions and the payment
-methods behind them. Milestone 1 (local CRUD over SQLite) is implemented; the
-roadmap (email ingestion with a local LLM, API connectors, browser scraping,
-review queue) lives in `docs/plan.md`.
+methods behind them. Milestones 1–3 (local CRUD, ingestion pipeline plus review
+queue, email sources) are implemented; the roadmap (API connectors, browser
+scraping, renewals) lives in `docs/plan.md`.
 
 Keep changes idiomatic for Wails v3 — it differs substantially from v2.
 
 ### Hard product constraints
 
-- **No cloud LLM.** The LLM client (once built) must talk to a local /
-  self-hosted OpenAI-compatible endpoint only. Never add vendor keys or send
-  subscription data to a hosted API.
+- **No cloud LLM.** The LLM client must talk to a local / self-hosted
+  OpenAI-compatible endpoint only. Never add vendor keys or send subscription
+  data to a hosted API.
 - **Never store secrets or PANs.** Payment methods hold metadata only (label,
-  issuer, network, last4, expiry, wallet address + chain). Never accept or
-  persist full card numbers or CVVs.
+  issuer, network, last4, expiry, wallet address + chain). Source passwords live
+  only in the secret store (`internal/secrets`) and are never exposed through
+  DTOs, events or logs. Never accept or persist full card numbers or CVVs.
 - Amounts are integer minor units + currency + scale. Billing dates are calendar
   dates (`domain.Date`), never timestamps.
 
@@ -68,6 +69,7 @@ wails3 generate bindings -ts -i   # regenerate TS bindings after changing Go ser
 go build -tags gtk3 . ./internal/...
 go vet -tags gtk3 . ./internal/...
 go test -tags gtk3 ./internal/...
+go test -tags gtk3 -race ./internal/...   # before committing concurrency changes
 npm --prefix frontend run check   # svelte-check
 npm --prefix frontend run build   # vite production build
 ```
@@ -83,10 +85,11 @@ internal/domain/        models, Money, calendar Date, billing math, ULID ids
 internal/store/         SQLite store: open/WAL, migrations, repositories
 internal/store/migrations/*.sql   embedded schema migrations (add new files, never edit applied ones)
 internal/app/           Wails-bound services, DTOs, mappers, tests
-internal/ingest/        normalization, dedupe, heuristics, extraction pipeline
+internal/ingest/        normalization, dedupe, classification, heuristics, extraction pipeline
 internal/jobs/          persisted job queue with a cancellable worker pool
 internal/llm/           local OpenAI-compatible client (public hosts rejected)
-internal/mail/          go-imap/v2 client wrapper (for the future email source)
+internal/mail/          go-imap/v2 client and MIME parsing (text/plain preferred)
+internal/secrets/       OS keyring with an AES-GCM encrypted 0600-file fallback
 frontend/src/           Svelte 5 UI: routes/, components/, lib/
 frontend/bindings/      generated TS bindings (do not hand-edit)
 frontend/dist/          vite output, embedded via //go:embed all:frontend/dist
@@ -100,8 +103,8 @@ docs/plan.md            architecture and milestones
   (`SUBSTRACKT_HOME` overrides), registers the services and creates the window.
 - Services in `internal/app` are plain structs. They validate input, translate
   between domain types and DTOs, and emit events (`subscription:changed`,
-  `payment-method:changed`, `vendor:changed`). Keep DTOs separate from domain
-  types; the frontend only ever sees DTOs.
+  `payment-method:changed`, `vendor:changed`, `source:changed`). Keep DTOs
+  separate from domain types; the frontend only ever sees DTOs.
 - Vendors are created on demand from the subscription editor (by name,
   case-insensitive), so a subscription may carry a vendor name without an ID.
 - `Subscription.NextRenewal` is always recomputed from the original anchor date
@@ -112,18 +115,35 @@ docs/plan.md            architecture and milestones
 - SQLite runs with `SetMaxOpenConns(1)` and WAL; new tables go in a **new**
   numbered migration, because `0001_init.sql` is already applied everywhere
   (`0002_ingestion.sql` adds jobs, artifacts, extractions, settings and LLM
-  cache/usage).
+  cache/usage; `0003_sources.sql` adds sources and mailbox cursors).
 - The ingestion pipeline (`internal/ingest`) is channel-agnostic: every source
-  produces a `RawItem` and shares normalize → dedupe (SHA-256) → extract →
-  match. Heuristic confidence is capped at 0.85, below the default 0.9
-  auto-apply threshold, so rules-only results always go to review.
+  produces a `RawItem` and shares normalize → dedupe (SHA-256) → classify →
+  extract → match. Email is classified first and obvious non-billing mail
+  (newsletters, shipping, security alerts) is dropped before any model call.
+  Heuristic confidence is capped at 0.85, below the default 0.9 auto-apply
+  threshold, so rules-only results always go to review.
 - `internal/llm` only accepts loopback, private/link-local addresses, bare
   service names and local suffixes; never public hosts, credentials or
   query/fragment. Keep it that way.
 - Background jobs are persisted and claimed atomically. Handlers must return
   promptly when their context is cancelled. The bound `IngestionService` only
-  queues jobs; `IngestionHandler` (not a Wails service) executes them, so
-  function-typed methods never appear in the bindings.
+  queues manual imports; `IngestionHandler` and `EmailHandler` (not Wails
+  services) execute `ingest.manual` and `email.sync`, so function-typed methods
+  never appear in the bindings.
+- Email sync is incremental per mailbox: `mailbox_cursors` stores
+  `(source_id, mailbox, uid_validity, last_uid)`. The cursor advances after each
+  successfully pipelined message (including ignored mail) and stops before
+  advancing on a fetch or pipeline error. A changed `UIDVALIDITY` triggers a
+  bounded rescan with `last_uid = 0`. The IMAP client has no context support, so
+  cancellation aborts the connection.
+- `SourcesService` is the only bound service for channels. `Create`/enabled
+  `Update` require a password; `Test(id, in)` reuses the stored password when the
+  input password is empty. Passwords are written under the secret ref
+  `source:<id>` and DTOs expose only `HasSecret`.
+- `SourceScheduler` polls enabled sources on their schedule with an in-memory
+  cooldown, so an in-flight sync is not queued twice. It is best-effort; manual
+  **Sync now** is always available. Email syncs emit `source:status`, CRUD emits
+  `source:changed`.
 - Artifacts are redacted before storage; never persist PANs or CVVs.
 
 ## Conventions
@@ -144,8 +164,12 @@ docs/plan.md            architecture and milestones
 - `modernc.org/sqlite` — pure-Go SQLite driver (no cgo). Used by `internal/store`.
 - `github.com/emersion/go-imap/v2` v2.0.0-beta.9 — used by `internal/mail`
   (implicit TLS by default, `Config.Insecure` for local test servers). The v2
-  API is pre-1.0: check signatures in the module before upgrading. It is kept
-  for the email milestone; make sure the package still compiles if you touch it.
+  API is pre-1.0: check signatures in the module before upgrading.
+- `github.com/emersion/go-message` v0.18.2 — MIME parsing for email bodies.
+  `mail.ParseMessage` prefers `text/plain`, strips HTML as a fallback, ignores
+  attachments and returns the `Message-ID` without angle brackets.
+- `github.com/zalando/go-keyring` v0.2.8 — OS keyring lookup for source
+  passwords, with the encrypted file backend in `internal/secrets` as fallback.
 - `wails3 build` runs `go mod tidy` first (`common:go:mod:tidy`), so a module
   that nothing imports is silently removed from `go.mod` on the next build. If
   you add a library, make sure real code imports it.
@@ -154,7 +178,10 @@ docs/plan.md            architecture and milestones
 
 1. `go vet -tags gtk3 . ./internal/...` (with the shell environment described
    above; `./...` does not work — see Commands).
-2. `go test -tags gtk3 ./internal/...` — domain billing, store CRUD/migrations
-   and service behaviour must stay green.
+2. `go test -tags gtk3 ./internal/...` — domain billing, store CRUD/migrations,
+   secrets, email sync and service behaviour must stay green. Run it with
+   `-race` before committing changes to the job manager, scheduler or secret
+   store.
 3. `npm --prefix frontend run check` — 0 errors.
-4. `wails3 build` — must produce `bin/substrackt` with no pkg-config errors.
+4. `npm --prefix frontend run build` — vite production build succeeds.
+5. `wails3 build` — must produce `bin/substrackt` with no pkg-config errors.

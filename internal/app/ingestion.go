@@ -114,27 +114,6 @@ func (h *IngestionHandler) RunJob(ctx context.Context, job domain.Job, progress 
 	if err := json.Unmarshal([]byte(job.Payload), &payload); err != nil {
 		return "", fmt.Errorf("decode manual payload: %w", err)
 	}
-	settings, err := h.store.GetSettings(ctx)
-	if err != nil {
-		return "", err
-	}
-
-	config := ingest.Config{
-		AutoApply:    settings.AutoApply,
-		Threshold:    settings.AutoApplyThreshold,
-		BaseCurrency: settings.BaseCurrency,
-		Today:        appToday(ctx, h.store),
-		JobID:        job.ID,
-		Model:        settings.LLMModel,
-	}
-	if settings.LLMEnabled() {
-		client, err := llm.New(settings.LLMBaseURL, settings.LLMModel,
-			time.Duration(settings.LLMTimeoutSeconds)*time.Second)
-		if err != nil {
-			return "", fmt.Errorf("configured local LLM is invalid: %w", err)
-		}
-		config.Client = client
-	}
 
 	channel := payload.Channel
 	if channel == "" {
@@ -149,18 +128,57 @@ func (h *IngestionHandler) RunJob(ctx context.Context, job domain.Job, progress 
 		OccurredAt: payload.OccurredAt,
 	}
 
-	pipeline := ingest.Pipeline{Store: h.store, Applier: h.applier, Config: config}
-	result, err := pipeline.Run(ctx, item, progress)
+	result, err := h.runItem(ctx, job.ID, item, progress)
 	if err != nil {
 		return "", err
-	}
-	if result.ReviewID != "" {
-		h.notifyNewReview(ctx, result.ReviewID)
 	}
 	if result.Message == "" {
 		result.Message = "Ingestion finished"
 	}
 	return result.Message, nil
+}
+
+// runItem executes one channel-independent item and notifies the review queue.
+func (h *IngestionHandler) runItem(ctx context.Context, jobID string, item ingest.RawItem, progress func(int, string)) (ingest.Result, error) {
+	pipeline, err := h.pipeline(ctx, jobID)
+	if err != nil {
+		return ingest.Result{}, err
+	}
+	result, err := pipeline.Run(ctx, item, progress)
+	if err != nil {
+		return ingest.Result{}, err
+	}
+	if result.ReviewID != "" {
+		h.notifyNewReview(ctx, result.ReviewID)
+	}
+	return result, nil
+}
+
+// pipeline builds a configured pipeline. Email sync reuses one across messages
+// so settings and the local LLM client are created once per job.
+func (h *IngestionHandler) pipeline(ctx context.Context, jobID string) (ingest.Pipeline, error) {
+	settings, err := h.store.GetSettings(ctx)
+	if err != nil {
+		return ingest.Pipeline{}, err
+	}
+
+	config := ingest.Config{
+		AutoApply:    settings.AutoApply,
+		Threshold:    settings.AutoApplyThreshold,
+		BaseCurrency: settings.BaseCurrency,
+		Today:        appToday(ctx, h.store),
+		JobID:        jobID,
+		Model:        settings.LLMModel,
+	}
+	if settings.LLMEnabled() {
+		client, err := llm.New(settings.LLMBaseURL, settings.LLMModel,
+			time.Duration(settings.LLMTimeoutSeconds)*time.Second)
+		if err != nil {
+			return ingest.Pipeline{}, fmt.Errorf("configured local LLM is invalid: %w", err)
+		}
+		config.Client = client
+	}
+	return ingest.Pipeline{Store: h.store, Applier: h.applier, Config: config}, nil
 }
 
 func (h *IngestionHandler) notifyNewReview(ctx context.Context, id string) {

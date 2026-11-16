@@ -126,6 +126,15 @@ func (p *Pipeline) Run(ctx context.Context, item RawItem, progress func(int, str
 
 	report(progress, 20, "Classifying")
 	result := Result{ArtifactID: artifact.ID}
+	// Email is high volume: drop obvious non-billing mail before spending an
+	// extraction call on it. Manual imports are user-initiated, so they always
+	// go through extraction.
+	if channel == "email" && Classify(title, item.VendorHint, content) == ClassIgnore {
+		result.Action = ActionIgnored
+		result.Message = "Not a billing email"
+		report(progress, 100, result.Message)
+		return result, nil
+	}
 	today := p.Config.Today
 	if today.IsZero() {
 		today = domain.Today()

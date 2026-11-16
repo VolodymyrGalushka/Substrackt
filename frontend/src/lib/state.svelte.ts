@@ -4,6 +4,7 @@ import {
   ReviewService,
   SettingsService,
   PaymentMethodsService,
+  SourcesService,
   SubscriptionsService,
   VendorsService,
   errorMessage,
@@ -16,6 +17,7 @@ import type {
   PaymentMethod,
   ReviewItem,
   Settings,
+  Source,
   Subscription,
   Vendor,
 } from "./api";
@@ -34,6 +36,7 @@ export const store = $state({
   jobs: [] as Job[],
   jobCounts: null as JobCounts | null,
   settings: null as Settings | null,
+  sources: [] as Source[],
   llmUsage: [] as LLMUsage[],
   loading: false,
   error: "",
@@ -103,6 +106,11 @@ export async function loadSettings(): Promise<void> {
   if (settings) store.settings = settings;
 }
 
+export async function loadSources(): Promise<void> {
+  const rows = await attempt(() => SourcesService.List());
+  if (rows) store.sources = rows ?? [];
+}
+
 export async function loadLLMUsage(limit = 25): Promise<void> {
   const rows = await attempt(() => SettingsService.Usage(limit));
   if (rows) store.llmUsage = rows ?? [];
@@ -120,6 +128,7 @@ export async function loadAll(): Promise<void> {
       loadReviewCount(),
       loadJobs(),
       loadSettings(),
+      loadSources(),
     ]);
   } finally {
     store.loading = false;

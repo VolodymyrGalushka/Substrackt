@@ -204,3 +204,41 @@ func vendorDTO(v domain.Vendor) Vendor {
 		UpdatedAt: timeString(v.UpdatedAt),
 	}
 }
+
+func sourceDTO(src domain.Source) Source {
+	return Source{
+		ID:              src.ID,
+		Kind:            string(src.Kind),
+		Name:            src.Name,
+		Enabled:         src.Enabled,
+		ScheduleMinutes: src.ScheduleMinutes,
+		LastSyncAt:      timeString(src.LastSyncAt),
+		LastError:       src.LastError,
+		HasSecret:       src.SecretRef != "",
+		Config:          sourceConfigDTO(src.Config),
+		CreatedAt:       timeString(src.CreatedAt),
+		UpdatedAt:       timeString(src.UpdatedAt),
+	}
+}
+
+func sourceConfigDTO(cfg domain.EmailSourceConfig) SourceConfig {
+	return SourceConfig{
+		Address:     cfg.Address,
+		Username:    cfg.Username,
+		Mailbox:     cfg.Mailbox,
+		Insecure:    cfg.Insecure,
+		InitialDays: cfg.InitialDays,
+		MaxMessages: cfg.MaxMessages,
+	}
+}
+
+func sourceConfigDomain(cfg SourceConfig) domain.EmailSourceConfig {
+	return domain.EmailSourceConfig{
+		Address:     cfg.Address,
+		Username:    cfg.Username,
+		Mailbox:     cfg.Mailbox,
+		Insecure:    cfg.Insecure,
+		InitialDays: cfg.InitialDays,
+		MaxMessages: cfg.MaxMessages,
+	}
+}

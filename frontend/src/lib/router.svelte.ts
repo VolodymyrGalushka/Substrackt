@@ -1,9 +1,10 @@
-export type Route = "dashboard" | "subscriptions" | "review" | "activity" | "payment-methods" | "settings";
+export type Route = "dashboard" | "subscriptions" | "review" | "sources" | "activity" | "payment-methods" | "settings";
 
 const ROUTES: Route[] = [
   "dashboard",
   "subscriptions",
   "review",
+  "sources",
   "activity",
   "payment-methods",
   "settings",

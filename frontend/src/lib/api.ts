@@ -7,6 +7,7 @@ import {
   PaymentMethodsService,
   ReviewService,
   SettingsService,
+  SourcesService,
   SubscriptionsService,
   VendorsService,
 } from "../../bindings/substrackt/internal/app";
@@ -18,6 +19,7 @@ export {
   PaymentMethodsService,
   ReviewService,
   SettingsService,
+  SourcesService,
   SubscriptionsService,
   VendorsService,
 };
@@ -36,6 +38,10 @@ export type {
   ReviewFailure,
   ReviewItem,
   Settings,
+  Source,
+  SourceConfig,
+  SourceInput,
+  SourceTestResult,
   SpendBucket,
   Subscription,
   SubscriptionFilter,
