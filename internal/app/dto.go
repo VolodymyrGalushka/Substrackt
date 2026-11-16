@@ -273,7 +273,9 @@ type SourceConfig struct {
 	Address     string `json:"address"`
 	Username    string `json:"username"`
 	Mailbox     string `json:"mailbox"`
-	Insecure    bool   `json:"insecure"`
+	Security    string `json:"security"`
+	Auth        string `json:"auth"`
+	TLSHost     string `json:"tlsHost"`
 	InitialDays int    `json:"initialDays"`
 	MaxMessages int    `json:"maxMessages"`
 }

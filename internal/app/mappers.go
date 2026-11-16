@@ -226,7 +226,9 @@ func sourceConfigDTO(cfg domain.EmailSourceConfig) SourceConfig {
 		Address:     cfg.Address,
 		Username:    cfg.Username,
 		Mailbox:     cfg.Mailbox,
-		Insecure:    cfg.Insecure,
+		Security:    cfg.Security,
+		Auth:        cfg.Auth,
+		TLSHost:     cfg.TLSHost,
 		InitialDays: cfg.InitialDays,
 		MaxMessages: cfg.MaxMessages,
 	}
@@ -237,7 +239,9 @@ func sourceConfigDomain(cfg SourceConfig) domain.EmailSourceConfig {
 		Address:     cfg.Address,
 		Username:    cfg.Username,
 		Mailbox:     cfg.Mailbox,
-		Insecure:    cfg.Insecure,
+		Security:    cfg.Security,
+		Auth:        cfg.Auth,
+		TLSHost:     cfg.TLSHost,
 		InitialDays: cfg.InitialDays,
 		MaxMessages: cfg.MaxMessages,
 	}

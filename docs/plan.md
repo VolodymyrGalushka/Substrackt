@@ -106,10 +106,24 @@ Events: `subscription:changed`, `payment-method:changed`, `vendor:changed`,
 
 ## Email sources
 
-The **Sources** screen connects an IMAP mailbox (implicit TLS on 993 by default).
+The **Sources** screen connects an IMAP mailbox through a provider preset (Yahoo,
+Gmail, iCloud, Fastmail, Outlook/Microsoft 365, custom). Encryption modes are
+implicit TLS (normally 993), STARTTLS (normally 143) and plain TCP, the last
+restricted to loopback, private or local hostnames. Authentication modes are
+`auto` (prefer IMAP LOGIN, honour `LOGINDISABLED`, fall back to SASL PLAIN/LOGIN
+only when LOGIN is unavailable), `login`, `plain` and `xoauth2`. With `xoauth2`
+the credential field holds a short-lived access token; Outlook/Microsoft 365
+requires this because basic IMAP password auth is disabled. Yahoo, Gmail and
+iCloud normally require an app password when two-factor authentication is on.
+Certificate verification is never disabled; an optional TLS hostname override
+covers IP addresses and LAN aliases. An `ID` command is sent when the server
+advertises it, which some providers expect before `SELECT`.
+
 Passwords are written to the OS keyring when it is reachable and to an encrypted
 0600 file under `<config dir>/Substrackt/secrets/` otherwise; they never enter
-SQLite, DTOs, logs or events. Each sync:
+SQLite, DTOs, logs or events. The editor can reveal the typed value locally, and
+**Reveal saved** calls `SourcesService.RevealPassword` explicitly for an existing
+source. Each sync:
 
 1. reads the per-mailbox cursor (`uid_validity`, `last_uid`),
 2. searches only newer UIDs, or a bounded recent window on the first run,

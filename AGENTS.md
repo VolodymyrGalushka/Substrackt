@@ -139,7 +139,16 @@ docs/plan.md            architecture and milestones
 - `SourcesService` is the only bound service for channels. `Create`/enabled
   `Update` require a password; `Test(id, in)` reuses the stored password when the
   input password is empty. Passwords are written under the secret ref
-  `source:<id>` and DTOs expose only `HasSecret`.
+  `source:<id>` and DTOs expose only `HasSecret`. `RevealPassword(id)` exists
+  solely for the explicit **Reveal saved** action; never call it implicitly or
+  put its result in DTOs, events or logs.
+- IMAP config has `Security` (`tls` implicit, `starttls`, `none` for
+  loopback/private hosts only) and `Auth` (`auto`, `login`, `plain`, `xoauth2`).
+  `auto` prefers LOGIN, honours `LOGINDISABLED` and only falls back to SASL when
+  LOGIN is unavailable, so credential rejections are never retried. With
+  `xoauth2` the credential is an OAuth2 access token. Certificate verification
+  is never disabled; `TLSHost` only overrides the certificate hostname. Email
+  sync calls `EmailSourceConfig.Validate()` after `Normalize()` before dialing.
 - `SourceScheduler` polls enabled sources on their schedule with an in-memory
   cooldown, so an in-flight sync is not queued twice. It is best-effort; manual
   **Sync now** is always available. Email syncs emit `source:status`, CRUD emits
@@ -168,6 +177,8 @@ docs/plan.md            architecture and milestones
 - `github.com/emersion/go-message` v0.18.2 — MIME parsing for email bodies.
   `mail.ParseMessage` prefers `text/plain`, strips HTML as a fallback, ignores
   attachments and returns the `Message-ID` without angle brackets.
+- `github.com/emersion/go-sasl` — SASL PLAIN/LOGIN and the in-package XOAUTH2
+  client used by `internal/mail`.
 - `github.com/zalando/go-keyring` v0.2.8 — OS keyring lookup for source
   passwords, with the encrypted file backend in `internal/secrets` as fallback.
 - `wails3 build` runs `go mod tidy` first (`common:go:mod:tidy`), so a module

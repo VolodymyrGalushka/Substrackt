@@ -233,7 +233,9 @@ export interface SourceConfig {
     "address": string;
     "username": string;
     "mailbox": string;
-    "insecure": boolean;
+    "security": string;
+    "auth": string;
+    "tlsHost": string;
     "initialDays": number;
     "maxMessages": number;
 }

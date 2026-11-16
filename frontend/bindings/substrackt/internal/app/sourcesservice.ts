@@ -45,6 +45,15 @@ export function List(): $CancellablePromise<$models.Source[] | null> {
 }
 
 /**
+ * RevealPassword returns the stored credential for a source. It is only used
+ * by the explicit "show saved password" action in the source editor; the value
+ * is never included in DTOs, events or logs.
+ */
+export function RevealPassword(id: string): $CancellablePromise<string> {
+    return $Call.ByID(3876644406, id);
+}
+
+/**
  * SyncNow queues an immediate sync for a source.
  */
 export function SyncNow(id: string): $CancellablePromise<$models.Job> {

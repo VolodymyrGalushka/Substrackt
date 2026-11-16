@@ -93,6 +93,8 @@ func testSourceInput(name, password string) SourceInput {
 			Address:     "imap.example.com:993",
 			Username:    "me@example.com",
 			Mailbox:     "INBOX",
+			Security:    "tls",
+			Auth:        "auto",
 			InitialDays: 30,
 			MaxMessages: 50,
 		},
@@ -112,6 +114,9 @@ func TestSourcesServiceCRUDKeepsPasswordPrivate(t *testing.T) {
 	}
 	if created.Config.Address != "imap.example.com:993" || created.Config.Mailbox != "INBOX" {
 		t.Fatalf("config = %+v", created.Config)
+	}
+	if created.Config.Security != "tls" || created.Config.Auth != "auto" {
+		t.Fatalf("security/auth = %q/%q, want tls/auto", created.Config.Security, created.Config.Auth)
 	}
 	encoded, err := json.Marshal(created)
 	if err != nil {
@@ -175,6 +180,13 @@ func TestSourcesServiceCRUDKeepsPasswordPrivate(t *testing.T) {
 	got, err := a.sources.Get(created.ID)
 	if err != nil || got.ID != created.ID {
 		t.Fatalf("get = %+v, %v", got, err)
+	}
+	revealed, err := a.sources.RevealPassword(created.ID)
+	if err != nil || revealed != "new-secret" {
+		t.Fatalf("reveal password = %q, %v", revealed, err)
+	}
+	if _, err := a.sources.RevealPassword("missing"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("reveal missing source = %v", err)
 	}
 
 	if err := a.sources.Delete(created.ID); err != nil {

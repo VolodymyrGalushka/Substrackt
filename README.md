@@ -91,10 +91,22 @@ and credentials are rejected.
 
 ## Email sources
 
-**Sources → Add source** configures an IMAP mailbox (implicit TLS, port 993 by
-default; plain TCP is available for local test servers). Passwords are stored in
+**Sources → Add source** configures an IMAP mailbox, starting from a provider
+preset (Yahoo, Gmail, iCloud, Fastmail, Outlook/Microsoft 365, or custom).
+Encryption is implicit TLS (normally 993), STARTTLS (normally 143), or plain TCP
+for local/private test servers only. Authentication is `auto` (LOGIN, falling
+back to SASL PLAIN/LOGIN when the server disables LOGIN), `login`, `plain`, or
+`xoauth2`, where the credential field holds an OAuth2 access token. Providers
+with two-factor authentication require an app password (Yahoo Account Security →
+Generate app password, Google Account → App passwords, an app-specific password
+for iCloud); Microsoft 365 requires OAuth2 instead. The password field has
+**Show/Hide**, and an existing source can load its saved credential into the
+editor explicitly with **Reveal saved**.
+
+Passwords are stored in
 the OS keyring when it is available and otherwise in an encrypted 0600 file; they
-are never returned to the frontend or written to SQLite.
+are never returned to the frontend in DTOs, events or logs, and never written to
+SQLite. `RevealPassword` is only called by that explicit user action.
 
 **Test connection** checks the credentials without saving. **Sync now** queues an
 email job; enabled sources are also polled on their schedule. Each sync reads a

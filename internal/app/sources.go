@@ -58,6 +58,24 @@ func (s *SourcesService) Get(id string) (Source, error) {
 	return sourceDTO(src), nil
 }
 
+// RevealPassword returns the stored credential for a source. It is only used
+// by the explicit "show saved password" action in the source editor; the value
+// is never included in DTOs, events or logs.
+func (s *SourcesService) RevealPassword(id string) (string, error) {
+	src, err := s.store.GetSource(context.Background(), id)
+	if err != nil {
+		return "", err
+	}
+	if src.SecretRef == "" {
+		return "", fmt.Errorf("no password is saved for this source")
+	}
+	value, err := s.secrets.Get(src.SecretRef)
+	if err != nil {
+		return "", fmt.Errorf("load password: %w", err)
+	}
+	return value, nil
+}
+
 // Create saves a source and its password.
 func (s *SourcesService) Create(in SourceInput) (Source, error) {
 	ctx := context.Background()
@@ -192,7 +210,9 @@ func (s *SourcesService) Test(id string, in SourceInput) (SourceTestResult, erro
 		Address:  cfg.Address,
 		Username: cfg.Username,
 		Password: password,
-		Insecure: cfg.Insecure,
+		Security: cfg.Security,
+		Auth:     cfg.Auth,
+		TLSHost:  cfg.TLSHost,
 	})
 	if err != nil {
 		return SourceTestResult{Error: err.Error()}, nil

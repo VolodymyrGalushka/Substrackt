@@ -100,6 +100,11 @@ func (h *EmailHandler) sync(ctx context.Context, jobID, sourceID string, progres
 
 	cfg := src.Config
 	cfg.Normalize()
+	// Configurations saved before encryption/auth modes existed still need to
+	// fail with a clear message instead of a confusing dial error.
+	if err := cfg.Validate(); err != nil {
+		return "", fmt.Errorf("source %q is misconfigured: %w", src.Name, err)
+	}
 
 	emailReport(progress, 5, "Loading credentials")
 	password, err := h.secrets.Get(src.SecretRef)
@@ -112,7 +117,9 @@ func (h *EmailHandler) sync(ctx context.Context, jobID, sourceID string, progres
 		Address:  cfg.Address,
 		Username: cfg.Username,
 		Password: password,
-		Insecure: cfg.Insecure,
+		Security: cfg.Security,
+		Auth:     cfg.Auth,
+		TLSHost:  cfg.TLSHost,
 	})
 	if err != nil {
 		return "", err

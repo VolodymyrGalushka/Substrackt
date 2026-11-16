@@ -21,6 +21,64 @@
   let formError = $state("");
   let notice = $state("");
   let testResult = $state<SourceTestResult | null>(null);
+  let showPassword = $state(false);
+  let revealing = $state(false);
+  let provider = $state("custom");
+
+  const providers = [
+    {
+      id: "yahoo",
+      label: "Yahoo Mail",
+      address: "imap.mail.yahoo.com:993",
+      security: "tls",
+      auth: "auto",
+      hint: "Yahoo requires an app password: Yahoo Account Security → Generate app password. Use your full Yahoo address as the username.",
+    },
+    {
+      id: "gmail",
+      label: "Gmail",
+      address: "imap.gmail.com:993",
+      security: "tls",
+      auth: "auto",
+      hint: "With 2-Step Verification enabled, Google requires an app password (Google Account → Security → App passwords).",
+    },
+    {
+      id: "icloud",
+      label: "iCloud Mail",
+      address: "imap.mail.me.com:993",
+      security: "tls",
+      auth: "auto",
+      hint: "Create an app-specific password at appleid.apple.com. The username is usually your iCloud address.",
+    },
+    {
+      id: "fastmail",
+      label: "Fastmail",
+      address: "imap.fastmail.com:993",
+      security: "tls",
+      auth: "auto",
+      hint: "Enable IMAP in Fastmail settings and create an app password. Your account password may be rejected.",
+    },
+    {
+      id: "outlook",
+      label: "Outlook / Microsoft 365",
+      address: "outlook.office365.com:993",
+      security: "tls",
+      auth: "xoauth2",
+      hint: "Microsoft disabled basic password authentication for IMAP. Use an OAuth2 access token (XOAUTH2) instead of a password.",
+    },
+    {
+      id: "custom",
+      label: "Custom IMAP",
+      address: "",
+      security: "tls",
+      auth: "auto",
+      hint: "",
+    },
+  ] as const;
+
+  const activeProvider = $derived(
+    providers.find((item) => item.id === provider) ?? providers[providers.length - 1],
+  );
 
   function blank(): Form {
     return {
@@ -32,7 +90,9 @@
         address: "imap.example.com:993",
         username: "",
         mailbox: "INBOX",
-        insecure: false,
+        security: "tls",
+        auth: "auto",
+        tlsHost: "",
         initialDays: 30,
         maxMessages: 50,
       },
@@ -46,9 +106,12 @@
     if (!editorOpen) return;
     formError = "";
     testResult = null;
+    showPassword = false;
+    revealing = false;
     const src = editing;
     if (!src) {
       form = blank();
+      provider = "custom";
       return;
     }
     form = {
@@ -59,6 +122,18 @@
       config: { ...src.config },
       password: "",
     };
+    const match = providers.find(
+      (item) => item.id !== "custom" && item.address && item.address === src.config.address,
+    );
+    provider = match?.id ?? "custom";
+  });
+
+  // OAuth2 needs an encrypted channel; keep the form consistent instead of
+  // letting the save fail server-side.
+  $effect(() => {
+    if (form.config.security === "none" && form.config.auth === "xoauth2") {
+      form.config.auth = "auto";
+    }
   });
 
   const sources = $derived(store.sources);
@@ -87,13 +162,49 @@
         address: form.config.address,
         username: form.config.username,
         mailbox: form.config.mailbox,
-        insecure: form.config.insecure,
+        security: form.config.security,
+        auth: form.config.auth,
+        tlsHost: form.config.tlsHost,
         initialDays: Number(form.config.initialDays) || 0,
         maxMessages: Number(form.config.maxMessages) || 0,
       },
       password: form.password,
     };
   }
+
+  function applyProvider(id: string) {
+    provider = id;
+    const preset = providers.find((item) => item.id === id);
+    if (!preset || preset.id === "custom") return;
+    form.config.address = preset.address;
+    form.config.security = preset.security;
+    form.config.auth = preset.auth;
+  }
+
+  function onProviderChange(event: Event) {
+    const target = event.currentTarget as HTMLSelectElement;
+    applyProvider(target.value);
+  }
+
+  async function revealSaved() {
+    if (!editing) return;
+    revealing = true;
+    formError = "";
+    try {
+      form.password = await SourcesService.RevealPassword(editing.id);
+      showPassword = true;
+    } catch (err) {
+      formError = errorMessage(err);
+    } finally {
+      revealing = false;
+    }
+  }
+
+  const passwordHint = $derived(
+    form.config.auth === "xoauth2"
+      ? "Paste a short-lived OAuth2 access token. If your provider supports app passwords, they are usually more practical for scheduled syncs."
+      : "Use an app password when the provider has two-factor authentication (Yahoo, Gmail, iCloud). Account passwords are often rejected.",
+  );
 
   function inputFrom(src: Source): SourceInput {
     return {
@@ -294,6 +405,28 @@
       </div>
 
       <div class="field span-2">
+        <label for="source-provider">Provider preset</label>
+        <select
+          id="source-provider"
+          class="select"
+          value={provider}
+          onchange={onProviderChange}
+        >
+          {#each providers as preset (preset.id)}
+            <option value={preset.id}>{preset.label}</option>
+          {/each}
+        </select>
+        {#if activeProvider.hint}
+          <span class="field-hint">{activeProvider.hint}</span>
+        {:else}
+          <span class="field-hint">
+            Choose the preset that matches your mail provider; it fills the server, port and
+            authentication method.
+          </span>
+        {/if}
+      </div>
+
+      <div class="field span-2">
         <label for="source-address">IMAP server</label>
         <input
           id="source-address"
@@ -302,7 +435,10 @@
           placeholder="imap.example.com:993"
           required
         />
-        <span class="field-hint">Use port 993 with TLS. Plain TCP is for local test servers only.</span>
+        <span class="field-hint">
+          Host and port. Use 993 with TLS or 143 with STARTTLS; plain TCP is for local test
+          servers only.
+        </span>
       </div>
 
       <div class="field">
@@ -317,21 +453,83 @@
       </div>
 
       <div class="field">
-        <label for="source-password">Password</label>
-        <input
-          id="source-password"
-          class="input"
-          type="password"
-          bind:value={form.password}
-          autocomplete="new-password"
-          placeholder={editing ? "Leave blank to keep the saved password" : ""}
-        />
-      </div>
-
-      <div class="field">
         <label for="source-mailbox">Mailbox</label>
         <input id="source-mailbox" class="input" bind:value={form.config.mailbox} placeholder="INBOX" />
       </div>
+
+      <div class="field span-2">
+        <label for="source-password">
+          {form.config.auth === "xoauth2" ? "OAuth2 access token" : "Password / app password"}
+        </label>
+        <div class="row" style="display: flex; gap: 8px; flex-wrap: nowrap; align-items: center;">
+          <input
+            id="source-password"
+            class="input"
+            type={showPassword ? "text" : "password"}
+            bind:value={form.password}
+            autocomplete={form.config.auth === "xoauth2" ? "off" : "new-password"}
+            placeholder={editing ? "Leave blank to keep the saved credential" : ""}
+            style="flex: 1; min-width: 0;"
+          />
+          <button
+            type="button"
+            class="btn ghost sm"
+            onclick={() => (showPassword = !showPassword)}
+            aria-label={showPassword ? "Hide password" : "Show password"}
+            style="white-space: nowrap;"
+          >
+            {showPassword ? "Hide" : "Show"}
+          </button>
+          {#if editing}
+            <button
+              type="button"
+              class="btn ghost sm"
+              onclick={revealSaved}
+              disabled={revealing || !editing.hasSecret}
+              title="Load the saved password into this field"
+              style="white-space: nowrap;"
+            >
+              {revealing ? "Loading…" : "Reveal saved"}
+            </button>
+          {/if}
+        </div>
+        <span class="field-hint">{passwordHint}</span>
+      </div>
+
+      <div class="field">
+        <label for="source-security">Encryption</label>
+        <select id="source-security" class="select" bind:value={form.config.security}>
+          <option value="tls">TLS (implicit, usually 993)</option>
+          <option value="starttls">STARTTLS (usually 143)</option>
+          <option value="none">None (local test servers only)</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="source-auth">Authentication</label>
+        <select id="source-auth" class="select" bind:value={form.config.auth}>
+          <option value="auto">Auto (recommended)</option>
+          <option value="login">LOGIN command</option>
+          <option value="plain">SASL PLAIN</option>
+          <option value="xoauth2">XOAUTH2 access token</option>
+        </select>
+      </div>
+
+      {#if form.config.security !== "none"}
+        <div class="field span-2">
+          <label for="source-tlshost">Certificate hostname (optional)</label>
+          <input
+            id="source-tlshost"
+            class="input"
+            bind:value={form.config.tlsHost}
+            placeholder="mail.example.com"
+          />
+          <span class="field-hint">
+            Set this only when the certificate name differs from the server address, such as an
+            IP address or a LAN alias.
+          </span>
+        </div>
+      {/if}
 
       <div class="field">
         <label for="source-schedule">Sync schedule</label>
@@ -373,11 +571,6 @@
       <label class="row" style="gap: 8px;">
         <input type="checkbox" bind:checked={form.enabled} />
         <span>Enabled</span>
-      </label>
-
-      <label class="row" style="gap: 8px;">
-        <input type="checkbox" bind:checked={form.config.insecure} />
-        <span>Plain TCP (local test servers only)</span>
       </label>
     </div>
 
