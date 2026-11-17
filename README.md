@@ -10,6 +10,9 @@ same review queue as manual imports, optionally parsed by a **local**
 OpenAI-compatible model. The longer-term plan (API connectors, browser scraping)
 is in [`docs/plan.md`](docs/plan.md).
 
+The interface has light and dark palettes plus **Use system theme**, which
+follows the OS setting live; the choice is remembered locally on the device.
+
 ## Requirements
 
 - **Go 1.27.4** — pinned in `.tool-versions` for asdf. Run `asdf install` in this

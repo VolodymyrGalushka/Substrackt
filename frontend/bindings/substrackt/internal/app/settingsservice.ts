@@ -29,6 +29,16 @@ export function Reset(): $CancellablePromise<$models.Settings> {
 }
 
 /**
+ * SystemDarkMode reports whether the desktop currently prefers a dark colour
+ * scheme. The frontend calls it for the "Use system theme" mode, polling
+ * occasionally so a desktop change is picked up even when no portal signal is
+ * delivered.
+ */
+export function SystemDarkMode(): $CancellablePromise<boolean> {
+    return $Call.ByID(994196649);
+}
+
+/**
  * TestLLM probes the configured endpoint. Connection failures are returned in
  * the result rather than as an error so the UI can show them inline.
  */

@@ -168,7 +168,14 @@ docs/plan.md            architecture and milestones
 - Product metadata lives in `build/config.yml`; after editing `info` or
   `fileAssociations`, run `wails3 task common:update:build-assets`.
 - Frontend entry points: `src/main.ts` mounts `App.svelte`; routing is hash-based
-  (`lib/router.svelte.ts`); shared state lives in `lib/state.svelte.ts`.
+  (`lib/router.svelte.ts`); shared state lives in `lib/state.svelte.ts`. Theme is
+  `system`/`light`/`dark` in `lib/theme.svelte.ts`: it writes
+  `<html data-theme>` and persists to `localStorage` (`substrackt:theme` plus a
+  resolved cache for the first paint). `app.css` defines both palettes as CSS
+  variables, so new UI must use the variables, not hard-coded colors. "System"
+  calls `SettingsService.SystemDarkMode()` — on Linux that checks the
+  GNOME/Budgie colour-scheme and GTK theme, then falls back to Wails'
+  freedesktop-portal value — and polls while active.
 
 ## Dependency notes
 

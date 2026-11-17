@@ -3,6 +3,7 @@
   import type { LLMTestResult, Settings } from "../lib/api";
   import { SettingsService, errorMessage } from "../lib/api";
   import { loadLLMUsage, loadSettings, store } from "../lib/state.svelte";
+  import { setTheme, theme, type ThemeMode } from "../lib/theme.svelte";
 
   let form = $state<Settings>(blank());
   let saving = $state(false);
@@ -16,6 +17,12 @@
     { label: "Ollama", url: "http://127.0.0.1:11434/v1", model: "qwen2.5" },
     { label: "LM Studio", url: "http://127.0.0.1:1234/v1", model: "local-model" },
     { label: "llama.cpp", url: "http://127.0.0.1:8080/v1", model: "local-model" },
+  ];
+
+  const themes: { mode: ThemeMode; label: string }[] = [
+    { mode: "system", label: "Use system theme" },
+    { mode: "light", label: "Light" },
+    { mode: "dark", label: "Dark" },
   ];
 
   function blank(): Settings {
@@ -178,6 +185,28 @@
             bind:value={form.autoApplyThreshold}
           />
           <span class="field-hint">Confidence from 0 to 1. Default 0.9. Rules-only parses never auto-apply.</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h3>Appearance</h3>
+      <div class="row" style="justify-content: space-between; align-items: center;">
+        <p class="field-hint" style="margin: 0;">
+          Auto follows your operating system's light/dark setting and updates live.
+        </p>
+        <div class="chips" role="group" aria-label="Theme">
+          {#each themes as option (option.mode)}
+            <button
+              type="button"
+              class="chip"
+              class:active={theme.mode === option.mode}
+              onclick={() => setTheme(option.mode)}
+              aria-pressed={theme.mode === option.mode}
+            >
+              {option.label}
+            </button>
+          {/each}
         </div>
       </div>
     </section>
