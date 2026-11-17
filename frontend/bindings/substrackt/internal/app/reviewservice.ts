@@ -31,6 +31,13 @@ export function BulkAccept(ids: string[] | null): $CancellablePromise<$models.Re
 }
 
 /**
+ * BulkReject dismisses each ID independently and reports per-item failures.
+ */
+export function BulkReject(ids: string[] | null): $CancellablePromise<$models.ReviewBulkResult> {
+    return $Call.ByID(723071133, ids);
+}
+
+/**
  * Count returns the number of pending proposals.
  */
 export function Count(): $CancellablePromise<number> {

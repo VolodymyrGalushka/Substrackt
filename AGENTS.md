@@ -170,12 +170,17 @@ docs/plan.md            architecture and milestones
 - Frontend entry points: `src/main.ts` mounts `App.svelte`; routing is hash-based
   (`lib/router.svelte.ts`); shared state lives in `lib/state.svelte.ts`. Theme is
   `system`/`light`/`dark` in `lib/theme.svelte.ts`: it writes
-  `<html data-theme>` and persists to `localStorage` (`substrackt:theme` plus a
-  resolved cache for the first paint). `app.css` defines both palettes as CSS
-  variables, so new UI must use the variables, not hard-coded colors. "System"
-  calls `SettingsService.SystemDarkMode()` — on Linux that checks the
+  `<html data-theme>` and persists to `localStorage` under `substrackt:theme`.
+  `app.css` defines both palettes as CSS variables, so new UI must use the
+  variables, not hard-coded colors. "System" calls
+  `SettingsService.SystemDarkMode()` — on Linux that checks `GTK_THEME`, the
   GNOME/Budgie colour-scheme and GTK theme, then falls back to Wails'
-  freedesktop-portal value — and polls while active.
+  freedesktop-portal value — and polls while active. `main` calls
+  `PrepareSystemTheme()` before `application.New` so a dark desktop sets
+  `GTK_THEME` and WebKitGTK's `prefers-color-scheme` agrees with the app.
+- The review queue supports bulk actions: `ReviewService.BulkAccept` and
+  `BulkReject` apply each ID independently and report per-item failures in
+  `ReviewBulkResult` (`accepted`/`rejected` plus `failed`).
 
 ## Dependency notes
 

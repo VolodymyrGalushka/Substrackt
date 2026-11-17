@@ -150,10 +150,11 @@ export interface ReviewAcceptInput {
 }
 
 /**
- * ReviewBulkResult reports the outcome of a bulk accept.
+ * ReviewBulkResult reports the outcome of a bulk accept or reject.
  */
 export interface ReviewBulkResult {
     "accepted": number;
+    "rejected": number;
     "failed": ReviewFailure[] | null;
 }
 

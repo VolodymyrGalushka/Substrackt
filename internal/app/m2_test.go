@@ -283,6 +283,73 @@ func TestReviewRejectAndBulkAccept(t *testing.T) {
 	}
 }
 
+func TestReviewBulkReject(t *testing.T) {
+	a := newTestApp(t)
+
+	for _, content := range []string{
+		"From: Gamma Cloud\n$7.00 per month",
+		"From: Delta Cloud\n$8.00 per month",
+	} {
+		if _, err := a.ingest.IngestManual(ManualInput{Content: content}); err != nil {
+			t.Fatalf("ingest: %v", err)
+		}
+	}
+	a.drain(t)
+
+	items, err := a.review.List("")
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("pending = %d, want 2", len(items))
+	}
+
+	result, err := a.review.BulkReject([]string{items[0].ID, "missing"})
+	if err != nil {
+		t.Fatalf("bulk reject: %v", err)
+	}
+	if result.Rejected != 1 || result.Accepted != 0 || len(result.Failed) != 1 {
+		t.Fatalf("bulk reject result = %+v", result)
+	}
+	if result.Failed[0].ID != "missing" || result.Failed[0].Error == "" {
+		t.Fatalf("failure = %+v", result.Failed[0])
+	}
+
+	// Rejecting an already resolved item must be reported, not silently dropped.
+	result, err = a.review.BulkReject([]string{items[0].ID})
+	if err != nil {
+		t.Fatalf("bulk reject repeated: %v", err)
+	}
+	if result.Rejected != 0 || len(result.Failed) != 1 || result.Failed[0].ID != items[0].ID {
+		t.Fatalf("repeated bulk reject result = %+v", result)
+	}
+
+	rejected, err := a.review.List("rejected")
+	if err != nil {
+		t.Fatalf("list rejected: %v", err)
+	}
+	if len(rejected) != 1 || rejected[0].ID != items[0].ID {
+		t.Fatalf("rejected = %+v", rejected)
+	}
+
+	// The untouched item is still pending and can be rejected in bulk.
+	result, err = a.review.BulkReject([]string{items[1].ID})
+	if err != nil {
+		t.Fatalf("bulk reject remaining: %v", err)
+	}
+	if result.Rejected != 1 || len(result.Failed) != 0 {
+		t.Fatalf("remaining bulk reject result = %+v", result)
+	}
+
+	pending, err := a.review.List("")
+	if err != nil {
+		t.Fatalf("list pending: %v", err)
+	}
+	if len(pending) != 0 {
+		t.Fatalf("pending = %d, want 0", len(pending))
+	}
+}
+
 func TestSettingsValidationAndLocalEndpointPolicy(t *testing.T) {
 	a := newTestApp(t)
 

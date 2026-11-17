@@ -2,9 +2,10 @@
 // and "dark" pin a palette. The resolved value is written to
 // <html data-theme="...">, which app.css uses to swap CSS variables.
 //
-// WebKitGTK does not reliably implement prefers-color-scheme, so the system
-// value comes from Wails (freedesktop portal on Linux, the native API
-// elsewhere). matchMedia is only the fallback for browser previews.
+// WebKitGTK derives prefers-color-scheme from the GTK theme, so main.go sets
+// GTK_THEME for a dark desktop before GTK starts. The system value itself comes
+// from the Go backend (gsettings/GTK theme, with Wails' portal as fallback),
+// which is more reliable than the web media query alone.
 import { Events, System } from "@wailsio/runtime";
 import { SettingsService } from "./api";
 
@@ -12,7 +13,6 @@ export type ThemeMode = "system" | "light" | "dark";
 export type ResolvedTheme = "light" | "dark";
 
 export const THEME_STORAGE_KEY = "substrackt:theme";
-const RESOLVED_STORAGE_KEY = "substrackt:resolved-theme";
 
 const MEDIA_QUERY = "(prefers-color-scheme: dark)";
 
@@ -57,19 +57,10 @@ function apply(): void {
   if (typeof document !== "undefined") {
     document.documentElement.dataset.theme = theme.resolved;
   }
-  if (typeof localStorage !== "undefined") {
-    try {
-      // Lets the inline bootstrap script in index.html paint the right palette
-      // before the app mounts.
-      localStorage.setItem(RESOLVED_STORAGE_KEY, theme.resolved);
-    } catch {
-      // Ignore: theming still works for this session.
-    }
-  }
 }
 
 // refreshSystem reads the real desktop preference. It is async, so the first
-// paint may briefly use the cached resolved theme until it settles.
+// paint uses the web media query until it settles.
 async function refreshSystem(): Promise<void> {
   try {
     // Go-side detection handles Linux desktops whose portal disagrees with the

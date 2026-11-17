@@ -4,6 +4,7 @@ package app
 
 import (
 	"context"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -18,18 +19,66 @@ import (
 // implementations (notably Budgie's) report "prefer light" while the GTK theme
 // in use is dark, which would make "Use system theme" ignore the desktop.
 func desktopDarkMode() (dark bool, ok bool) {
-	if value, found := gsettingsValue("org.gnome.desktop.interface", "color-scheme"); found {
-		switch value {
+	// An explicit override wins: it is what GTK actually renders with.
+	if env := os.Getenv("GTK_THEME"); env != "" {
+		return isDarkThemeName(env), true
+	}
+
+	scheme, haveScheme := gsettingsValue("org.gnome.desktop.interface", "color-scheme")
+	theme, haveTheme := gsettingsValue("org.gnome.desktop.interface", "gtk-theme")
+	themeDark := haveTheme && isDarkThemeName(theme)
+
+	// Budgie's color-scheme key can lag behind the theme the desktop actually
+	// applies, so trust the GTK theme there.
+	if strings.Contains(strings.ToLower(os.Getenv("XDG_CURRENT_DESKTOP")), "budgie") && haveTheme {
+		return themeDark, true
+	}
+
+	if haveScheme {
+		switch scheme {
 		case "prefer-dark":
 			return true, true
 		case "prefer-light":
 			return false, true
 		}
 	}
-	if value, found := gsettingsValue("org.gnome.desktop.interface", "gtk-theme"); found {
-		return strings.Contains(strings.ToLower(value), "dark"), true
+	if haveTheme {
+		return themeDark, true
 	}
 	return false, false
+}
+
+// isDarkThemeName reports whether a GTK theme name selects a dark variant.
+// Names arrive either bare ("Materia-dark") or with a variant suffix
+// ("Adwaita:dark").
+func isDarkThemeName(name string) bool {
+	return strings.Contains(strings.ToLower(name), "dark")
+}
+
+// gtkThemePreference returns the configured GTK theme name.
+func gtkThemePreference() string {
+	theme, _ := gsettingsValue("org.gnome.desktop.interface", "gtk-theme")
+	return theme
+}
+
+// PrepareSystemTheme makes GTK and WebKitGTK agree with the desktop's dark
+// preference. It must be called before application.New initialises GTK:
+// WebKitGTK derives prefers-color-scheme from gtk-application-prefer-dark-theme,
+// a theme name ending in -dark, or a GTK_THEME value ending in :dark. Without
+// this, pages report a light scheme on dark desktops even though the app's own
+// palette is dark.
+func PrepareSystemTheme() {
+	dark, ok := desktopDarkMode()
+	if !ok || !dark || os.Getenv("GTK_THEME") != "" {
+		return
+	}
+	theme := gtkThemePreference()
+	if isDarkThemeName(theme) {
+		// Use the desktop's own dark theme when it has one.
+		_ = os.Setenv("GTK_THEME", theme)
+		return
+	}
+	_ = os.Setenv("GTK_THEME", "Adwaita:dark")
 }
 
 func gsettingsValue(schema, key string) (string, bool) {

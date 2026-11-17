@@ -221,9 +221,10 @@ type ReviewFailure struct {
 	Error string `json:"error"`
 }
 
-// ReviewBulkResult reports the outcome of a bulk accept.
+// ReviewBulkResult reports the outcome of a bulk accept or reject.
 type ReviewBulkResult struct {
 	Accepted int             `json:"accepted"`
+	Rejected int             `json:"rejected"`
 	Failed   []ReviewFailure `json:"failed"`
 }
 

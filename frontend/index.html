@@ -5,13 +5,21 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Substrackt</title>
     <script>
-      // Paint the last resolved theme before first paint. The real system value
-      // is queried through Wails once the app mounts (WebKitGTK does not
-      // reliably report prefers-color-scheme).
+      // Paint the right palette before first paint. Wails sets GTK_THEME for a
+      // dark desktop before GTK starts, so WebKitGTK's prefers-color-scheme is
+      // reliable here; lib/theme.svelte.ts confirms it through the Go backend.
       (function () {
         try {
-          var resolved = localStorage.getItem("substrackt:resolved-theme");
-          document.documentElement.dataset.theme = resolved === "light" ? "light" : "dark";
+          var mode = localStorage.getItem("substrackt:theme");
+          var dark;
+          if (mode === "light") {
+            dark = false;
+          } else if (mode === "dark") {
+            dark = true;
+          } else {
+            dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+          }
+          document.documentElement.dataset.theme = dark ? "dark" : "light";
         } catch (error) {
           document.documentElement.dataset.theme = "dark";
         }

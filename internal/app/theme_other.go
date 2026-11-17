@@ -7,3 +7,7 @@ package app
 func desktopDarkMode() (bool, bool) {
 	return false, false
 }
+
+// PrepareSystemTheme is a no-op outside Linux: the native toolkit already
+// follows the OS appearance.
+func PrepareSystemTheme() {}

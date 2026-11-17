@@ -181,6 +181,29 @@
     }
   }
 
+  async function bulkReject() {
+    if (selected.length === 0) return;
+    const count = selected.length;
+    const prompt = allSelected
+      ? `Reject all ${count} pending proposal(s)? This dismisses them without creating subscriptions.`
+      : `Reject ${count} selected proposal(s)? This dismisses them without creating subscriptions.`;
+    if (!confirm(prompt)) return;
+    busyId = "bulk";
+    try {
+      const result = await ReviewService.BulkReject(selected);
+      const failed = result.failed ?? [];
+      if (failed.length > 0) {
+        store.error = `${failed.length} item(s) could not be rejected: ${failed[0].error}`;
+      }
+      selected = [];
+      await loadAll();
+    } catch (err) {
+      store.error = errorMessage(err);
+    } finally {
+      busyId = "";
+    }
+  }
+
   function toggleSelected(id: string) {
     selected = selected.includes(id) ? selected.filter((row) => row !== id) : [...selected, id];
   }
@@ -245,6 +268,18 @@
           onclick={bulkAccept}
         >
           Accept selected ({selected.length})
+        </button>
+        <button
+          class="btn danger sm"
+          disabled={selected.length === 0 || busyId === "bulk"}
+          onclick={bulkReject}
+          title={
+            allSelected
+              ? "Reject every pending proposal in the queue"
+              : "Reject the selected proposals"
+          }
+        >
+          {allSelected ? "Reject all" : "Reject selected"} ({selected.length})
         </button>
       </div>
     {/if}

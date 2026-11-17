@@ -124,6 +124,22 @@ func (s *ReviewService) BulkAccept(ids []string) (ReviewBulkResult, error) {
 	return result, nil
 }
 
+// BulkReject dismisses each ID independently and reports per-item failures.
+func (s *ReviewService) BulkReject(ids []string) (ReviewBulkResult, error) {
+	result := ReviewBulkResult{Failed: []ReviewFailure{}}
+	if len(ids) == 0 {
+		return result, nil
+	}
+	for _, id := range ids {
+		if _, err := s.Reject(id); err != nil {
+			result.Failed = append(result.Failed, ReviewFailure{ID: id, Error: err.Error()})
+			continue
+		}
+		result.Rejected++
+	}
+	return result, nil
+}
+
 func (s *ReviewService) apply(ctx context.Context, ex domain.Extraction, in ReviewAcceptInput) (string, error) {
 	update := false
 	base := domain.Subscription{}

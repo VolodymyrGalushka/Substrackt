@@ -22,6 +22,11 @@ import (
 var assets embed.FS
 
 func main() {
+	// Must run before application.New initialises GTK: WebKitGTK reads the GTK
+	// theme when it decides prefers-color-scheme, so a dark desktop needs
+	// GTK_THEME set here or pages report a light scheme.
+	appsvc.PrepareSystemTheme()
+
 	dbPath, err := databasePath()
 	if err != nil {
 		log.Fatalf("resolve database path: %v", err)
