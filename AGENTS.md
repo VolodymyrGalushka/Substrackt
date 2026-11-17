@@ -149,6 +149,8 @@ docs/plan.md            architecture and milestones
   `xoauth2` the credential is an OAuth2 access token. Certificate verification
   is never disabled; `TLSHost` only overrides the certificate hostname. Email
   sync calls `EmailSourceConfig.Validate()` after `Normalize()` before dialing.
+  Provider presets in the UI only fill the address and encryption; they must not
+  force an app password or XOAUTH2, which stay optional user choices.
 - `SourceScheduler` polls enabled sources on their schedule with an in-memory
   cooldown, so an in-flight sync is not queued twice. It is best-effort; manual
   **Sync now** is always available. Email syncs emit `source:status`, CRUD emits

@@ -111,11 +111,13 @@ Gmail, iCloud, Fastmail, Outlook/Microsoft 365, custom). Encryption modes are
 implicit TLS (normally 993), STARTTLS (normally 143) and plain TCP, the last
 restricted to loopback, private or local hostnames. Authentication modes are
 `auto` (prefer IMAP LOGIN, honour `LOGINDISABLED`, fall back to SASL PLAIN/LOGIN
-only when LOGIN is unavailable), `login`, `plain` and `xoauth2`. With `xoauth2`
-the credential field holds a short-lived access token; Outlook/Microsoft 365
-requires this because basic IMAP password auth is disabled. Yahoo, Gmail and
-iCloud normally require an app password when two-factor authentication is on.
-Certificate verification is never disabled; an optional TLS hostname override
+only when LOGIN is unavailable), `login`, `plain` and `xoauth2`. Presets fill
+only the server address and encryption, so app passwords and API tokens are
+optional: try the account password first and switch only if the provider rejects
+it. With `xoauth2` the credential field holds a short-lived access token;
+Microsoft 365 may require this because basic IMAP password auth is often
+disabled. Yahoo, Gmail and iCloud may require an app password when two-factor
+authentication is on. Certificate verification is never disabled; an optional TLS hostname override
 covers IP addresses and LAN aliases. An `ID` command is sent when the server
 advertises it, which some providers expect before `SELECT`.
 

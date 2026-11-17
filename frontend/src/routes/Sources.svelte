@@ -31,47 +31,41 @@
       label: "Yahoo Mail",
       address: "imap.mail.yahoo.com:993",
       security: "tls",
-      auth: "auto",
-      hint: "Yahoo requires an app password: Yahoo Account Security → Generate app password. Use your full Yahoo address as the username.",
+      hint: "Use your full Yahoo address as the username. If Yahoo rejects your account password (common with 2-Step Verification or Account Key), generate an app password under Account Security.",
     },
     {
       id: "gmail",
       label: "Gmail",
       address: "imap.gmail.com:993",
       security: "tls",
-      auth: "auto",
-      hint: "With 2-Step Verification enabled, Google requires an app password (Google Account → Security → App passwords).",
+      hint: "The username is usually your full Gmail address. If 2-Step Verification is on, Google may require an app password (Google Account → Security → App passwords).",
     },
     {
       id: "icloud",
       label: "iCloud Mail",
       address: "imap.mail.me.com:993",
       security: "tls",
-      auth: "auto",
-      hint: "Create an app-specific password at appleid.apple.com. The username is usually your iCloud address.",
+      hint: "The username is usually your iCloud address. Apple may require an app-specific password from appleid.apple.com.",
     },
     {
       id: "fastmail",
       label: "Fastmail",
       address: "imap.fastmail.com:993",
       security: "tls",
-      auth: "auto",
-      hint: "Enable IMAP in Fastmail settings and create an app password. Your account password may be rejected.",
+      hint: "Enable IMAP in Fastmail settings. Fastmail may require an app password; your account password can be rejected.",
     },
     {
       id: "outlook",
       label: "Outlook / Microsoft 365",
       address: "outlook.office365.com:993",
       security: "tls",
-      auth: "xoauth2",
-      hint: "Microsoft disabled basic password authentication for IMAP. Use an OAuth2 access token (XOAUTH2) instead of a password.",
+      hint: "Microsoft may disable basic password authentication for IMAP. Try your password first; if it is rejected, switch Authentication to XOAUTH2 and paste an access token.",
     },
     {
       id: "custom",
       label: "Custom IMAP",
       address: "",
       security: "tls",
-      auth: "auto",
       hint: "",
     },
   ] as const;
@@ -176,9 +170,10 @@
     provider = id;
     const preset = providers.find((item) => item.id === id);
     if (!preset || preset.id === "custom") return;
+    // Presets only fill the server and encryption; the authentication method and
+    // credential stay the user's choice (app passwords/tokens are optional).
     form.config.address = preset.address;
     form.config.security = preset.security;
-    form.config.auth = preset.auth;
   }
 
   function onProviderChange(event: Event) {
@@ -203,7 +198,7 @@
   const passwordHint = $derived(
     form.config.auth === "xoauth2"
       ? "Paste a short-lived OAuth2 access token. If your provider supports app passwords, they are usually more practical for scheduled syncs."
-      : "Use an app password when the provider has two-factor authentication (Yahoo, Gmail, iCloud). Account passwords are often rejected.",
+      : "Use your account password, or an app password if the provider supports it. App passwords are optional; they are needed only when the provider rejects your account password (common with two-factor authentication).",
   );
 
   function inputFrom(src: Source): SourceInput {
@@ -420,8 +415,8 @@
           <span class="field-hint">{activeProvider.hint}</span>
         {:else}
           <span class="field-hint">
-            Choose the preset that matches your mail provider; it fills the server, port and
-            authentication method.
+            Choose the preset that matches your mail provider; it fills the server and encryption
+            only. Authentication stays as you set it.
           </span>
         {/if}
       </div>

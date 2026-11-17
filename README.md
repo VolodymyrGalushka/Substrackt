@@ -96,10 +96,14 @@ preset (Yahoo, Gmail, iCloud, Fastmail, Outlook/Microsoft 365, or custom).
 Encryption is implicit TLS (normally 993), STARTTLS (normally 143), or plain TCP
 for local/private test servers only. Authentication is `auto` (LOGIN, falling
 back to SASL PLAIN/LOGIN when the server disables LOGIN), `login`, `plain`, or
-`xoauth2`, where the credential field holds an OAuth2 access token. Providers
-with two-factor authentication require an app password (Yahoo Account Security →
-Generate app password, Google Account → App passwords, an app-specific password
-for iCloud); Microsoft 365 requires OAuth2 instead. The password field has
+`xoauth2`, where the credential field holds an OAuth2 access token. Presets fill
+only the server address and encryption, so app passwords and API tokens are
+optional: try your account password first, and switch to an app password or
+XOAUTH2 token only if the provider rejects it. When a provider does reject an
+account password (common with two-factor authentication), generate an app
+password (Yahoo Account Security → Generate app password, Google Account → App
+passwords, an app-specific password for iCloud), or use XOAUTH2 where basic IMAP
+auth is disabled, such as Microsoft 365. The password field has
 **Show/Hide**, and an existing source can load its saved credential into the
 editor explicitly with **Reveal saved**.
 
