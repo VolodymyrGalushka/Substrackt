@@ -17,7 +17,37 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 import * as $models from "./models.js";
 
 /**
- * Create saves a source and its password.
+ * BeginSignIn opens a browser window for an interactive login. Progress arrives
+ * through the browser:login event; use CancelSignIn to abort.
+ */
+export function BeginSignIn(id: string): $CancellablePromise<void> {
+    return $Call.ByID(3164282005, id);
+}
+
+/**
+ * BrowserConnectors lists the vendor presets available to browser sources.
+ */
+export function BrowserConnectors(): $CancellablePromise<$models.BrowserConnector[] | null> {
+    return $Call.ByID(13953094);
+}
+
+/**
+ * BrowserRuntime reports whether Playwright and Chromium are installed.
+ */
+export function BrowserRuntime(): $CancellablePromise<$models.BrowserRuntime> {
+    return $Call.ByID(2012793318);
+}
+
+/**
+ * CancelSignIn aborts an in-flight interactive login.
+ */
+export function CancelSignIn(id: string): $CancellablePromise<void> {
+    return $Call.ByID(1878233466, id);
+}
+
+/**
+ * Create saves a source and its credential. Email sources require a password;
+ * browser sources start signed out and gain a session through BeginSignIn.
  */
 export function Create($in: $models.SourceInput): $CancellablePromise<$models.Source> {
     return $Call.ByID(1031620238, $in);
@@ -38,6 +68,13 @@ export function Get(id: string): $CancellablePromise<$models.Source> {
 }
 
 /**
+ * InstallBrowser downloads the Playwright driver and Chromium on first use.
+ */
+export function InstallBrowser(): $CancellablePromise<$models.BrowserRuntime> {
+    return $Call.ByID(1886641715);
+}
+
+/**
  * List returns every configured source, enabled first.
  */
 export function List(): $CancellablePromise<$models.Source[] | null> {
@@ -51,6 +88,13 @@ export function List(): $CancellablePromise<$models.Source[] | null> {
  */
 export function RevealPassword(id: string): $CancellablePromise<string> {
     return $Call.ByID(3876644406, id);
+}
+
+/**
+ * SignInStatus returns the latest sign-in state for a browser source.
+ */
+export function SignInStatus(id: string): $CancellablePromise<$models.BrowserLoginStatus> {
+    return $Call.ByID(131085494, id);
 }
 
 /**

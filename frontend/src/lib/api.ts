@@ -24,6 +24,9 @@ export {
   VendorsService,
 };
 export type {
+  BrowserConnector,
+  BrowserLoginStatus,
+  BrowserRuntime,
   DashboardSummary,
   Job,
   JobCounts,

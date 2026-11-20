@@ -103,3 +103,42 @@ func TestMailHostIsLocal(t *testing.T) {
 		}
 	}
 }
+
+func TestBrowserSourceValidation(t *testing.T) {
+	src := Source{
+		Kind:            SourceBrowser,
+		Name:            "GitHub billing",
+		ScheduleMinutes: 60,
+		Browser: BrowserSourceConfig{
+			Connector:      "github",
+			TimeoutSeconds: 30,
+		},
+	}
+	if err := src.Validate(); err != nil {
+		t.Fatalf("valid browser source: %v", err)
+	}
+
+	missingConnector := src
+	missingConnector.Browser.Connector = ""
+	if err := missingConnector.Validate(); err == nil {
+		t.Fatal("expected a missing connector to be rejected")
+	}
+
+	plain := src
+	plain.Browser.BillingURL = "http://github.com/settings/billing"
+	if err := plain.Validate(); err == nil {
+		t.Fatal("expected a non-https billing URL to be rejected")
+	}
+
+	query := src
+	query.Browser.BillingURL = "https://github.com/settings/billing?x=1"
+	if err := query.Validate(); err == nil {
+		t.Fatal("expected a query string to be rejected")
+	}
+
+	shortTimeout := src
+	shortTimeout.Browser.TimeoutSeconds = 2
+	if err := shortTimeout.Validate(); err == nil {
+		t.Fatal("expected a short timeout to be rejected")
+	}
+}

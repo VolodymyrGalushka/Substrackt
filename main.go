@@ -10,6 +10,7 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 
 	appsvc "substrackt/internal/app"
+	"substrackt/internal/browser"
 	"substrackt/internal/domain"
 	"substrackt/internal/jobs"
 	"substrackt/internal/secrets"
@@ -59,8 +60,21 @@ func main() {
 	emailHandler.SetNotifier(func(src appsvc.Source) {
 		emitEvent("source:status", src)
 	})
+
+	browserEngine := browser.NewPlaywright()
+	browserManager := appsvc.NewBrowserManager(st, secretStore, browserEngine)
+	defer browserManager.Close()
+	browserManager.SetLoginNotifier(func(status appsvc.BrowserLoginStatus) {
+		emitEvent("browser:login", status)
+	})
+	browserManager.SetSourceNotifier(func(src appsvc.Source) {
+		emitEvent("source:status", src)
+	})
+	browserHandler := appsvc.NewBrowserHandler(st, ingestion, browserManager)
+
 	jobManager.Handle(appsvc.ManualJobKind, ingestion.RunJob)
 	jobManager.Handle(appsvc.EmailJobKind, emailHandler.RunJob)
+	jobManager.Handle(appsvc.BrowserJobKind, browserHandler.RunJob)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer func() {
@@ -90,7 +104,7 @@ func main() {
 			application.NewService(review),
 			application.NewService(settings),
 			application.NewService(appsvc.NewIngestionService(jobManager)),
-			application.NewService(appsvc.NewSourcesService(st, secretStore, jobManager)),
+			application.NewService(appsvc.NewSourcesService(st, secretStore, jobManager, browserManager)),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),

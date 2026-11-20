@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"substrackt/internal/browser"
 	"substrackt/internal/domain"
 	"substrackt/internal/jobs"
 	"substrackt/internal/mail"
@@ -23,15 +24,17 @@ type SourcesService struct {
 	store   *store.Store
 	secrets secrets.Store
 	manager *jobs.Manager
+	browser *BrowserManager
 	dial    emailDialer
 }
 
 // NewSourcesService wires the service to the store, secret store and queue.
-func NewSourcesService(st *store.Store, secretStore secrets.Store, manager *jobs.Manager) *SourcesService {
+func NewSourcesService(st *store.Store, secretStore secrets.Store, manager *jobs.Manager, BrowserManager *BrowserManager) *SourcesService {
 	return &SourcesService{
 		store:   st,
 		secrets: secretStore,
 		manager: manager,
+		browser: BrowserManager,
 		dial:    dialIMAP,
 	}
 }
@@ -69,6 +72,9 @@ func (s *SourcesService) RevealPassword(id string) (string, error) {
 	if src.SecretRef == "" {
 		return "", fmt.Errorf("no password is saved for this source")
 	}
+	if src.Kind != domain.SourceEmail {
+		return "", fmt.Errorf("this source does not use a password")
+	}
 	value, err := s.secrets.Get(src.SecretRef)
 	if err != nil {
 		return "", fmt.Errorf("load password: %w", err)
@@ -76,28 +82,38 @@ func (s *SourcesService) RevealPassword(id string) (string, error) {
 	return value, nil
 }
 
-// Create saves a source and its password.
+// Create saves a source and its credential. Email sources require a password;
+// browser sources start signed out and gain a session through BeginSignIn.
 func (s *SourcesService) Create(in SourceInput) (Source, error) {
 	ctx := context.Background()
 	src, err := sourceFromInput(domain.Source{}, in)
 	if err != nil {
 		return Source{}, err
 	}
-	if in.Password == "" {
-		return Source{}, fmt.Errorf("password is required")
-	}
-	if len(in.Password) > maxSecretBytes {
-		return Source{}, fmt.Errorf("password is too long (limit %d bytes)", maxSecretBytes)
+	if src.Kind == domain.SourceEmail {
+		if in.Password == "" {
+			return Source{}, fmt.Errorf("password is required")
+		}
+		if len(in.Password) > maxSecretBytes {
+			return Source{}, fmt.Errorf("password is too long (limit %d bytes)", maxSecretBytes)
+		}
+		src.ID = domain.NewID()
+		src.SecretRef = sourceSecretRef(src.ID)
+		if err := s.secrets.Set(src.SecretRef, in.Password); err != nil {
+			return Source{}, fmt.Errorf("store password: %w", err)
+		}
+		if err := s.store.CreateSource(ctx, &src); err != nil {
+			// Do not leave an orphaned credential behind a failed insert.
+			_ = s.secrets.Delete(src.SecretRef)
+			return Source{}, err
+		}
+		dto := sourceDTO(src)
+		emit("source:changed", dto)
+		return dto, nil
 	}
 
 	src.ID = domain.NewID()
-	src.SecretRef = sourceSecretRef(src.ID)
-	if err := s.secrets.Set(src.SecretRef, in.Password); err != nil {
-		return Source{}, fmt.Errorf("store password: %w", err)
-	}
 	if err := s.store.CreateSource(ctx, &src); err != nil {
-		// Do not leave an orphaned credential behind a failed insert.
-		_ = s.secrets.Delete(src.SecretRef)
 		return Source{}, err
 	}
 	dto := sourceDTO(src)
@@ -120,6 +136,25 @@ func (s *SourcesService) Update(id string, in SourceInput) (Source, error) {
 	}
 	if len(in.Password) > maxSecretBytes {
 		return Source{}, fmt.Errorf("password is too long (limit %d bytes)", maxSecretBytes)
+	}
+
+	if updated.Kind == domain.SourceBrowser {
+		// A session is scoped to the vendor. Changing connectors must not send
+		// the old cookies to a different site.
+		if current.Kind != domain.SourceBrowser || current.Browser.Connector != updated.Browser.Connector {
+			if current.SecretRef != "" {
+				_ = s.secrets.Delete(current.SecretRef)
+			}
+			updated.SecretRef = ""
+		} else {
+			updated.SecretRef = current.SecretRef
+		}
+		if err := s.store.UpdateSource(ctx, &updated); err != nil {
+			return Source{}, err
+		}
+		dto := sourceDTO(updated)
+		emit("source:changed", dto)
+		return dto, nil
 	}
 
 	newSecret := in.Password != ""
@@ -179,25 +214,46 @@ func (s *SourcesService) SyncNow(id string) (Job, error) {
 	if err != nil {
 		return Job{}, err
 	}
-	if src.Kind != domain.SourceEmail {
-		return Job{}, fmt.Errorf("source %q is not an email source", src.Name)
-	}
 	if !src.Enabled {
 		return Job{}, fmt.Errorf("source %q is disabled", src.Name)
 	}
-	if src.SecretRef == "" {
-		return Job{}, fmt.Errorf("source %q has no stored password", src.Name)
+	switch src.Kind {
+	case domain.SourceEmail:
+		if src.SecretRef == "" {
+			return Job{}, fmt.Errorf("source %q has no stored password", src.Name)
+		}
+		job, err := s.manager.Enqueue(context.Background(), EmailJobKind, emailPayload{SourceID: id})
+		if err != nil {
+			return Job{}, err
+		}
+		return jobDTO(job), nil
+	case domain.SourceBrowser:
+		if src.SecretRef == "" {
+			return Job{}, fmt.Errorf("source %q is not signed in; use Sign in first", src.Name)
+		}
+		job, err := s.manager.Enqueue(context.Background(), BrowserJobKind, browserPayload{SourceID: id})
+		if err != nil {
+			return Job{}, err
+		}
+		return jobDTO(job), nil
+	default:
+		return Job{}, fmt.Errorf("source %q has an unsupported kind", src.Name)
 	}
-	job, err := s.manager.Enqueue(context.Background(), EmailJobKind, emailPayload{SourceID: id})
-	if err != nil {
-		return Job{}, err
-	}
-	return jobDTO(job), nil
 }
 
 // Test connects to the configured mailbox without saving anything. When id
 // refers to a stored source, an empty password reuses its credential.
 func (s *SourcesService) Test(id string, in SourceInput) (SourceTestResult, error) {
+	kind := domain.SourceKind(strings.ToLower(strings.TrimSpace(in.Kind)))
+	if kind == "" && id != "" {
+		if stored, err := s.store.GetSource(context.Background(), id); err == nil {
+			kind = stored.Kind
+		}
+	}
+	if kind == domain.SourceBrowser {
+		return s.testBrowser(id, in)
+	}
+
 	cfg, password, err := s.testConfig(id, in)
 	if err != nil {
 		return SourceTestResult{Error: err.Error()}, nil
@@ -258,7 +314,7 @@ func (s *SourcesService) testConfig(id string, in SourceInput) (domain.EmailSour
 	if err != nil {
 		return domain.EmailSourceConfig{}, "", err
 	}
-	return src.Config, password, nil
+	return src.Email, password, nil
 }
 
 func sourceFromInput(base domain.Source, in SourceInput) (domain.Source, error) {
@@ -266,15 +322,16 @@ func sourceFromInput(base domain.Source, in SourceInput) (domain.Source, error) 
 	if kind == "" {
 		kind = domain.SourceEmail
 	}
+	if kind == domain.SourceBrowser {
+		return browserSourceFromInput(base, in)
+	}
 
 	src := base
 	src.Kind = kind
 	src.Name = in.Name
 	src.Enabled = in.Enabled
 	src.ScheduleMinutes = in.ScheduleMinutes
-	if kind == domain.SourceEmail {
-		src.Config = sourceConfigDomain(in.Config)
-	}
+	src.Email = sourceEmailConfig(in.Config)
 	src.Normalize()
 	if err := src.Validate(); err != nil {
 		return domain.Source{}, err
@@ -282,4 +339,93 @@ func sourceFromInput(base domain.Source, in SourceInput) (domain.Source, error) 
 	return src, nil
 }
 
+func (s *SourcesService) testBrowser(id string, in SourceInput) (SourceTestResult, error) {
+	if s.browser == nil {
+		return SourceTestResult{Error: "browser support is not available"}, nil
+	}
+	var base domain.Source
+	if id != "" {
+		stored, err := s.store.GetSource(context.Background(), id)
+		if err != nil {
+			return SourceTestResult{Error: err.Error()}, nil
+		}
+		base = stored
+	}
+	src, err := browserSourceFromInput(base, in)
+	if err != nil {
+		return SourceTestResult{Error: err.Error()}, nil
+	}
+	// Testing an existing source keeps its saved session; a brand-new source
+	// has none yet and must be signed in first.
+	src.SecretRef = base.SecretRef
+	return s.browser.TestBrowser(context.Background(), src)
+}
+
 func sourceSecretRef(id string) string { return "source:" + id }
+
+// BrowserRuntime reports whether Playwright and Chromium are installed.
+func (s *SourcesService) BrowserRuntime() BrowserRuntime {
+	if s.browser == nil {
+		return BrowserRuntime{Error: "browser support is not available"}
+	}
+	return s.browser.Runtime()
+}
+
+// InstallBrowser downloads the Playwright driver and Chromium on first use.
+func (s *SourcesService) InstallBrowser() (BrowserRuntime, error) {
+	if s.browser == nil {
+		return BrowserRuntime{Error: "browser support is not available"}, fmt.Errorf("browser support is not available")
+	}
+	if err := s.browser.Install(context.Background()); err != nil {
+		return s.browser.Runtime(), err
+	}
+	runtime := s.browser.Runtime()
+	if !runtime.Ready {
+		return runtime, fmt.Errorf("browser runtime is not ready: %s", runtime.Error)
+	}
+	return runtime, nil
+}
+
+// BrowserConnectors lists the vendor presets available to browser sources.
+func (s *SourcesService) BrowserConnectors() []BrowserConnector {
+	connectors := browser.Connectors()
+	out := make([]BrowserConnector, 0, len(connectors))
+	for _, connector := range connectors {
+		out = append(out, BrowserConnector{
+			ID:         connector.ID,
+			Name:       connector.Name,
+			LoginURL:   connector.LoginURL,
+			BillingURL: connector.BillingURL,
+		})
+	}
+	return out
+}
+
+// BeginSignIn opens a browser window for an interactive login. Progress arrives
+// through the browser:login event; use CancelSignIn to abort.
+func (s *SourcesService) BeginSignIn(id string) error {
+	if s.browser == nil {
+		return fmt.Errorf("browser support is not available")
+	}
+	src, err := s.store.GetSource(context.Background(), id)
+	if err != nil {
+		return err
+	}
+	return s.browser.BeginLogin(src)
+}
+
+// CancelSignIn aborts an in-flight interactive login.
+func (s *SourcesService) CancelSignIn(id string) error {
+	if s.browser == nil {
+		return fmt.Errorf("browser support is not available")
+	}
+	return s.browser.CancelLogin(id)
+}
+
+// SignInStatus returns the latest sign-in state for a browser source.
+func (s *SourcesService) SignInStatus(id string) BrowserLoginStatus {
+	if s.browser == nil {
+		return BrowserLoginStatus{SourceID: id}
+	}
+	return s.browser.LoginStatus(id)
+}

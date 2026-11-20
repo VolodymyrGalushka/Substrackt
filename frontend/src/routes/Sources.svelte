@@ -1,5 +1,15 @@
 <script lang="ts">
-  import type { Source, SourceConfig, SourceInput, SourceTestResult } from "../lib/api";
+  import { onMount } from "svelte";
+  import { Events } from "@wailsio/runtime";
+  import type {
+    BrowserConnector,
+    BrowserLoginStatus,
+    BrowserRuntime,
+    Source,
+    SourceConfig,
+    SourceInput,
+    SourceTestResult,
+  } from "../lib/api";
   import { SourcesService, errorMessage } from "../lib/api";
   import Modal from "../components/Modal.svelte";
   import { loadJobs, loadSources, store } from "../lib/state.svelte";
@@ -24,6 +34,123 @@
   let showPassword = $state(false);
   let revealing = $state(false);
   let provider = $state("custom");
+  let runtime = $state<BrowserRuntime | null>(null);
+  let connectors = $state<BrowserConnector[]>([]);
+  let installing = $state(false);
+  let login = $state<Record<string, BrowserLoginStatus>>({});
+
+  onMount(() => {
+    void refreshRuntime();
+    void refreshConnectors();
+    const off = Events.On("browser:login", (event) => {
+      const status = event.data as BrowserLoginStatus;
+      if (!status?.sourceId) return;
+      login = { ...login, [status.sourceId]: status };
+      if (status.state === "saved" || status.state === "failed" || status.state === "cancelled") {
+        void loadSources();
+      }
+    });
+    return () => off();
+  });
+
+  async function refreshRuntime() {
+    try {
+      runtime = await SourcesService.BrowserRuntime();
+    } catch {
+      runtime = { ready: false, error: "Browser support is unavailable" };
+    }
+  }
+
+  async function refreshConnectors() {
+    try {
+      connectors = (await SourcesService.BrowserConnectors()) ?? [];
+      if (!form.config.connector && connectors.length > 0) {
+        form.config.connector = connectors[0].id;
+      }
+    } catch {
+      connectors = [];
+    }
+  }
+
+  async function installBrowser() {
+    installing = true;
+    store.error = "";
+    try {
+      runtime = await SourcesService.InstallBrowser();
+    } catch (err) {
+      store.error = errorMessage(err);
+      await refreshRuntime();
+    } finally {
+      installing = false;
+    }
+  }
+
+  async function beginSignIn(src: Source) {
+    login = { ...login, [src.id]: { sourceId: src.id, state: "starting", error: "" } };
+    try {
+      await SourcesService.BeginSignIn(src.id);
+    } catch (err) {
+      login = {
+        ...login,
+        [src.id]: { sourceId: src.id, state: "failed", error: errorMessage(err) },
+      };
+    }
+  }
+
+  async function cancelSignIn(src: Source) {
+    try {
+      await SourcesService.CancelSignIn(src.id);
+    } catch (err) {
+      store.error = errorMessage(err);
+    }
+  }
+
+  function loginState(src: Source): BrowserLoginStatus | null {
+    const status = login[src.id];
+    if (status) return status;
+    return null;
+  }
+
+  function loginLabel(src: Source): string {
+    const status = loginState(src);
+    if (status) {
+      if (status.state === "saved") {
+        // The session may have expired since: trust the refreshed source.
+        return src.hasSecret ? "Signed in" : "Not signed in";
+      }
+      switch (status.state) {
+        case "starting":
+          return "Starting…";
+        case "installing":
+          return "Installing browser…";
+        case "waiting":
+          return "Waiting for sign-in…";
+        case "cancelled":
+          return "Sign-in cancelled";
+        case "failed":
+          return status.error || "Sign-in failed";
+      }
+    }
+    return src.hasSecret ? "Signed in" : "Not signed in";
+  }
+
+  function isSigningIn(src: Source): boolean {
+    const state = loginState(src)?.state;
+    return state === "starting" || state === "installing" || state === "waiting";
+  }
+
+  function browserConnector(id: string): BrowserConnector | undefined {
+    return connectors.find((item) => item.id === id);
+  }
+
+  function onKindChange(event: Event) {
+    const target = event.currentTarget as HTMLSelectElement;
+    form.kind = target.value;
+    if (form.kind === "browser") {
+      form.config.connector = form.config.connector || connectors[0]?.id || "";
+      form.config.timeoutSeconds = form.config.timeoutSeconds || 30;
+    }
+  }
 
   const providers = [
     {
@@ -89,6 +216,9 @@
         tlsHost: "",
         initialDays: 30,
         maxMessages: 50,
+        connector: "",
+        billingUrl: "",
+        timeoutSeconds: 30,
       },
       password: "",
     };
@@ -161,6 +291,9 @@
         tlsHost: form.config.tlsHost,
         initialDays: Number(form.config.initialDays) || 0,
         maxMessages: Number(form.config.maxMessages) || 0,
+        connector: form.config.connector,
+        billingUrl: form.config.billingUrl,
+        timeoutSeconds: Number(form.config.timeoutSeconds) || 0,
       },
       password: form.password,
     };
@@ -220,11 +353,18 @@
     try {
       if (editing) {
         await SourcesService.Update(editing.id, payload());
+        await loadSources();
+        close();
       } else {
-        await SourcesService.Create(payload());
+        const created = await SourcesService.Create(payload());
+        await loadSources();
+        close();
+        if (created.kind === "browser") {
+          // Saving a browser source only creates the placeholder; open the
+          // vendor sign-in immediately so the next step is obvious.
+          void beginSignIn(created);
+        }
       }
-      await loadSources();
-      close();
     } catch (err) {
       formError = errorMessage(err);
     } finally {
@@ -238,7 +378,7 @@
     try {
       testResult = await SourcesService.Test(editing?.id ?? "", payload());
     } catch (err) {
-      testResult = { ok: false, mailbox: "", messages: 0, error: errorMessage(err) };
+      testResult = { ok: false, mailbox: "", messages: 0, message: "", error: errorMessage(err) };
     } finally {
       testing = false;
     }
@@ -272,7 +412,11 @@
   }
 
   async function remove(src: Source) {
-    if (!confirm(`Delete "${src.name}"? Its stored password and sync position are removed too.`)) {
+    const detail =
+      src.kind === "browser"
+        ? "Its saved browser session is removed too."
+        : "Its stored password and sync position are removed too.";
+    if (!confirm(`Delete "${src.name}"? ${detail}`)) {
       return;
     }
     busyId = src.id;
@@ -312,8 +456,8 @@
     <div>
       <h1>Sources</h1>
       <p>
-        Ingestion channels that feed the review queue. Passwords go to the OS keyring or an
-        encrypted file, never to the database.
+        Ingestion channels that feed the review queue. Email passwords and browser sessions go to
+        the OS keyring or an encrypted file, never to the database.
       </p>
     </div>
     <div class="row">
@@ -329,12 +473,24 @@
     </div>
   {/if}
 
+  {#if runtime && !runtime.ready}
+    <div class="banner" role="status">
+      <span>
+        Browser sign-in needs the Playwright runtime
+        {runtime.error ? `(${runtime.error})` : ""}.
+      </span>
+      <button class="btn sm" onclick={installBrowser} disabled={installing}>
+        {installing ? "Installing…" : "Install browser runtime"}
+      </button>
+    </div>
+  {/if}
+
   {#if sources.length === 0}
     <div class="card empty">
       <strong>No sources yet</strong>
       <span>
-        Connect a mailbox to pull subscription receipts and invoices automatically. Detected
-        subscriptions still wait in the review queue unless a local model is confident.
+        Connect a mailbox to pull subscription receipts, or sign in to a vendor billing page.
+        Detected subscriptions wait in the review queue unless a local model is confident.
       </span>
       <button class="btn primary" onclick={openNew}>+ Add source</button>
     </div>
@@ -345,8 +501,19 @@
           <div class="row" style="justify-content: space-between; align-items: flex-start;">
             <div>
               <div class="cell-title">{src.name}</div>
-              <div class="cell-sub mono">{src.config.username}</div>
-              <div class="cell-sub mono">{src.config.address} · {src.config.mailbox}</div>
+              {#if src.kind === "browser"}
+                <div class="cell-sub mono">
+                  {browserConnector(src.config.connector)?.name ?? src.config.connector}
+                </div>
+                <div class="cell-sub mono">
+                  {src.config.billingUrl ||
+                    browserConnector(src.config.connector)?.billingUrl ||
+                    "Default billing page"}
+                </div>
+              {:else}
+                <div class="cell-sub mono">{src.config.username}</div>
+                <div class="cell-sub mono">{src.config.address} · {src.config.mailbox}</div>
+              {/if}
             </div>
             <span class="badge" class:active={src.enabled}>
               {src.enabled ? "Enabled" : "Paused"}
@@ -356,7 +523,11 @@
           <p class="cell-sub" style="margin-top: 10px;">
             {scheduleLabel(src.scheduleMinutes)} · last sync {when(src.lastSyncAt)}
           </p>
-          {#if !src.hasSecret}
+          {#if src.kind === "browser"}
+            <p class="cell-sub" class:error-text={!src.hasSecret && !isSigningIn(src)}>
+              {loginLabel(src)}
+            </p>
+          {:else if !src.hasSecret}
             <p class="cell-sub error-text">No password saved. Edit the source to add one.</p>
           {/if}
           {#if src.lastError}
@@ -364,10 +535,29 @@
           {/if}
 
           <div class="row" style="margin-top: 14px; justify-content: flex-end;">
+            {#if src.kind === "browser"}
+              {#if isSigningIn(src)}
+                <button
+                  class="btn ghost sm"
+                  onclick={() => cancelSignIn(src)}
+                  disabled={busyId === src.id}
+                >
+                  Cancel sign-in
+                </button>
+              {:else}
+                <button
+                  class="btn ghost sm"
+                  onclick={() => beginSignIn(src)}
+                  disabled={busyId === src.id}
+                >
+                  {src.hasSecret ? "Sign in again" : "Sign in"}
+                </button>
+              {/if}
+            {/if}
             <button
               class="btn ghost sm"
               onclick={() => syncNow(src)}
-              disabled={busyId === src.id || !src.enabled}
+              disabled={busyId === src.id || !src.enabled || (src.kind === "browser" && !src.hasSecret)}
             >
               Sync now
             </button>
@@ -385,22 +575,98 @@
   {/if}
 </div>
 
-<Modal open={editorOpen} title={editing ? "Edit source" : "New email source"} onclose={close}>
+<Modal open={editorOpen} title={editing ? "Edit source" : "New source"} onclose={close}>
   <form onsubmit={submit}>
     <div class="form-grid">
+      <div class="field span-2">
+        <label for="source-kind">Channel</label>
+        <select
+          id="source-kind"
+          class="select"
+          value={form.kind}
+          onchange={onKindChange}
+          disabled={editing != null}
+        >
+          <option value="email">Email (IMAP)</option>
+          <option value="browser">Vendor website (browser)</option>
+        </select>
+        {#if editing == null}
+          <span class="field-hint">
+            Email pulls receipts from a mailbox. Browser signs in to a vendor billing page.
+          </span>
+        {/if}
+      </div>
+
       <div class="field span-2">
         <label for="source-name">Name</label>
         <input
           id="source-name"
           class="input"
           bind:value={form.name}
-          placeholder="Personal mail"
+          placeholder={form.kind === "browser" ? "GitHub billing" : "Personal mail"}
           required
         />
       </div>
 
-      <div class="field span-2">
-        <label for="source-provider">Provider preset</label>
+      {#if form.kind === "browser"}
+        <div class="field span-2">
+          <label for="source-connector">Vendor connector</label>
+          <select id="source-connector" class="select" bind:value={form.config.connector}>
+            {#each connectors as connector (connector.id)}
+              <option value={connector.id}>{connector.name}</option>
+            {/each}
+          </select>
+          <span class="field-hint">
+            Signing in opens a separate browser window. Your session is stored as a secret; it is
+            never written to the database.
+          </span>
+        </div>
+
+        <div class="field span-2">
+          <label for="source-billing-url">Billing page (optional)</label>
+          <input
+            id="source-billing-url"
+            class="input"
+            bind:value={form.config.billingUrl}
+            placeholder={browserConnector(form.config.connector)?.billingUrl ?? ""}
+          />
+          <span class="field-hint">
+            Leave blank to use the connector default. An override must stay on the same vendor
+            host.
+          </span>
+        </div>
+
+        <div class="field">
+          <label for="source-timeout">Page timeout (seconds)</label>
+          <input
+            id="source-timeout"
+            class="input"
+            type="number"
+            min="10"
+            max="300"
+            bind:value={form.config.timeoutSeconds}
+          />
+        </div>
+
+        <div class="field">
+          <label for="source-browser-schedule">Sync schedule</label>
+          <select id="source-browser-schedule" class="select" bind:value={form.scheduleMinutes}>
+            <option value={5}>every 5 minutes</option>
+            <option value={15}>every 15 minutes</option>
+            <option value={30}>every 30 minutes</option>
+            <option value={60}>every hour</option>
+            <option value={360}>every 6 hours</option>
+            <option value={1440}>every day</option>
+          </select>
+        </div>
+
+        <label class="row" style="gap: 8px;">
+          <input type="checkbox" bind:checked={form.enabled} />
+          <span>Enabled</span>
+        </label>
+      {:else}
+        <div class="field span-2">
+          <label for="source-provider">Provider preset</label>
         <select
           id="source-provider"
           class="select"
@@ -567,6 +833,7 @@
         <input type="checkbox" bind:checked={form.enabled} />
         <span>Enabled</span>
       </label>
+      {/if}
     </div>
 
     {#if formError}
@@ -576,8 +843,10 @@
     {#if testResult}
       <div class="test-result" class:ok={testResult.ok} class:bad={!testResult.ok}>
         {#if testResult.ok}
-          <strong>Connected to {testResult.mailbox}</strong>
-          <span>{testResult.messages} message(s) in the mailbox.</span>
+          <strong>{testResult.message || `Connected to ${testResult.mailbox}`}</strong>
+          {#if testResult.messages > 0}
+            <span>{testResult.messages} message(s) in the mailbox.</span>
+          {/if}
         {:else}
           <strong>Connection failed</strong>
           <span>{testResult.error}</span>

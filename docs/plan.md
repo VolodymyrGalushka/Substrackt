@@ -32,8 +32,8 @@ how often, with which payment method, and where the information came from.
 │ ingest orchestrator: Fetch → Normalize → Dedupe → Classify → Extract →     │
 │                      Match → Propose/Auto-apply                            │
 │   ├── email/   IMAP + MIME (go-imap v2, go-message)                        │
+│   ├── browser/ Playwright sessions + per-vendor connectors                 │
 │   ├── api/     declarative HTTP connectors (Stripe, Paddle, …)             │
-│   ├── browser/ Playwright sessions + per-vendor scrapers                   │
 │   └── manual/  direct service calls, same pipeline downstream              │
 │ llm/  OpenAI-compatible client only, schema-validated extraction,          │
 │       repair retry, content-hash cache, usage log                          │
@@ -75,7 +75,7 @@ monthly-equivalent normalisation per currency.
 | `PaymentMethods` | list/create/update/archive/delete |
 | `Vendors` | list/create/update/delete |
 | `Dashboard` | summary (spend, upcoming, by payment method) |
-| `Sources` | email source CRUD, connection test, sync now, automatic schedule |
+| `Sources` | email/browser source CRUD, connection test, browser sign-in, sync now, automatic schedule |
 | `Review` | pending list, get, count, accept/reject, bulk accept |
 | `Jobs` | list, get, cancel, retry, counts |
 | `Settings` | get/update/reset, LLM endpoint test, usage log |
@@ -83,7 +83,7 @@ monthly-equivalent normalisation per currency.
 
 Events: `subscription:changed`, `payment-method:changed`, `vendor:changed`,
 `job:progress`, `job:finished`, `review:new`, `review:changed`,
-`settings:changed`, `source:changed`, `source:status`.
+`settings:changed`, `source:changed`, `source:status`, `browser:login`.
 
 ## Ingestion pipeline
 
@@ -139,6 +139,29 @@ cursor for the failing message and records the error on the source. Enabled
 sources are polled on their schedule by a background scheduler; **Sync now** is
 always available.
 
+## Browser sources
+
+A browser source signs in to a vendor's own site and reads its billing page.
+The connector registry lives in `internal/browser` and currently has one entry:
+**GitHub** (`/settings/billing`). Each connector declares its login URL, billing
+URL, a JavaScript authenticated check, a ready selector and the extraction
+script.
+
+Sign-in is interactive: **Sign in** opens a separate headed Chromium window via
+Playwright, lets the user complete password/2FA/SSO, and polls the connector's
+authenticated check. When it passes, the Playwright storage state is written to
+the secret store under `source:<id>:session`; it is never written to SQLite or
+returned by a bound method. Closing the window, cancelling or timing out leaves
+the source signed out. The Playwright driver and Chromium are downloaded on
+first use (or with **Install browser runtime**) and are reused from the local
+Playwright cache.
+
+**Sync now** and the scheduler run a headless fetch with that session. The page
+text is redacted and ingested through the same pipeline as email and manual
+text, so extraction, dedupe, matching and review are shared. An expired session
+clears the stored state and marks the source so the UI asks for a new sign-in.
+Only one browser window is opened per source at a time.
+
 ## Milestones
 
 | Milestone | Status | Contents |
@@ -146,14 +169,15 @@ always available.
 | **M1 — core** | done | SQLite store + migrations, domain + billing tests, subscriptions / payment methods / vendors services, Svelte shell, dashboard, subscription editor |
 | **M2 — ingestion core** | done | jobs + events, settings + local LLM client, review queue, manual ingestion through the pipeline, review/activity/settings UI |
 | **M3 — email source** | done | sources + secret store, IMAP cursors/artifacts, MIME parsing, email classification, scheduled and manual sync, Sources UI |
-| **M4** | next | Playwright framework, interactive login, first vendor connector |
-| **M5** | | declarative API connectors, OAuth loopback |
+| **M4 — browser source** | done | Playwright framework, interactive sign-in with saved sessions, scheduled browser sync, GitHub billing connector |
+| **M5** | next | declarative API connectors, OAuth loopback |
 | **M6** | | renewals/notifications, spend history from charges, export/import |
 
-## Non-goals for M3
+## Non-goals for M4
 
-- No API or browser channels yet; email and manual text both produce a
-  `RawItem` for the same downstream pipeline.
-- No interactive OAuth/login flows, charge history, notifications or
-  multi-currency conversion (totals are reported per currency).
+- No API connectors or OAuth loopback flows yet.
+- No headless-browser CAPTCHA solving or anti-bot evasion; if a vendor blocks
+  automated sign-in, the user sees the vendor page and can cancel.
+- No screenshots in artifacts yet; browser evidence is the redacted page text.
+- No charge history, notifications or multi-currency conversion.
 - No cloud LLM support of any kind.

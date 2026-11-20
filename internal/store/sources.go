@@ -24,9 +24,9 @@ func (s *Store) CreateSource(ctx context.Context, src *domain.Source) error {
 		src.CreatedAt = now
 	}
 	src.UpdatedAt = now
-	config, err := json.Marshal(src.Config)
+	config, err := encodeSourceConfig(*src)
 	if err != nil {
-		return fmt.Errorf("encode source config: %w", err)
+		return err
 	}
 
 	_, err = s.db.ExecContext(ctx,
@@ -74,9 +74,9 @@ func (s *Store) ListSources(ctx context.Context) ([]domain.Source, error) {
 // UpdateSource persists the editable fields of a source.
 func (s *Store) UpdateSource(ctx context.Context, src *domain.Source) error {
 	src.UpdatedAt = time.Now()
-	config, err := json.Marshal(src.Config)
+	config, err := encodeSourceConfig(*src)
 	if err != nil {
-		return fmt.Errorf("encode source config: %w", err)
+		return err
 	}
 
 	res, err := s.db.ExecContext(ctx,
@@ -200,7 +200,7 @@ func scanSource(sc interface{ Scan(dest ...any) error }) (domain.Source, error) 
 	}
 	src.Kind = domain.SourceKind(kind)
 	if config != "" {
-		if err := json.Unmarshal([]byte(config), &src.Config); err != nil {
+		if err := decodeSourceConfig(kind, config, &src); err != nil {
 			return domain.Source{}, fmt.Errorf("decode source %s config: %w", src.ID, err)
 		}
 	}
@@ -209,4 +209,29 @@ func scanSource(sc interface{ Scan(dest ...any) error }) (domain.Source, error) 
 	src.CreatedAt = parseTime(createdAt)
 	src.UpdatedAt = parseTime(updatedAt)
 	return src, nil
+}
+
+// encodeSourceConfig stores only the config that belongs to the source kind.
+// Email configs keep their historical flat JSON shape so existing rows and
+// older builds can still read them.
+func encodeSourceConfig(src domain.Source) ([]byte, error) {
+	var value any
+	switch src.Kind {
+	case domain.SourceBrowser:
+		value = src.Browser
+	default:
+		value = src.Email
+	}
+	config, err := json.Marshal(value)
+	if err != nil {
+		return nil, fmt.Errorf("encode source config: %w", err)
+	}
+	return config, nil
+}
+
+func decodeSourceConfig(kind, config string, src *domain.Source) error {
+	if domain.SourceKind(kind) == domain.SourceBrowser {
+		return json.Unmarshal([]byte(config), &src.Browser)
+	}
+	return json.Unmarshal([]byte(config), &src.Email)
 }

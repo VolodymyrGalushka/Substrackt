@@ -69,7 +69,10 @@ func (s *SourceScheduler) Tick(ctx context.Context) (int, error) {
 
 	for _, src := range sources {
 		seen[src.ID] = struct{}{}
-		if !src.Enabled || src.Kind != domain.SourceEmail || src.SecretRef == "" {
+		if !src.Enabled || src.SecretRef == "" {
+			continue
+		}
+		if src.Kind != domain.SourceEmail && src.Kind != domain.SourceBrowser {
 			continue
 		}
 
@@ -85,7 +88,16 @@ func (s *SourceScheduler) Tick(ctx context.Context) (int, error) {
 			continue
 		}
 
-		if _, err := s.manager.Enqueue(ctx, EmailJobKind, emailPayload{SourceID: src.ID}); err != nil {
+		var kind string
+		var payload any
+		if src.Kind == domain.SourceBrowser {
+			kind = BrowserJobKind
+			payload = browserPayload{SourceID: src.ID}
+		} else {
+			kind = EmailJobKind
+			payload = emailPayload{SourceID: src.ID}
+		}
+		if _, err := s.manager.Enqueue(ctx, kind, payload); err != nil {
 			if firstErr == nil {
 				firstErr = err
 			}

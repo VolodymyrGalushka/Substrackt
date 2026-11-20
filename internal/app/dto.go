@@ -271,6 +271,7 @@ type LLMUsage struct {
 // SourceConfig is the typed configuration of an ingestion channel as seen by
 // the frontend. Credentials are never part of it.
 type SourceConfig struct {
+	// Email/IMAP fields.
 	Address     string `json:"address"`
 	Username    string `json:"username"`
 	Mailbox     string `json:"mailbox"`
@@ -279,6 +280,10 @@ type SourceConfig struct {
 	TLSHost     string `json:"tlsHost"`
 	InitialDays int    `json:"initialDays"`
 	MaxMessages int    `json:"maxMessages"`
+	// Browser fields.
+	Connector      string `json:"connector"`
+	BillingURL     string `json:"billingUrl"`
+	TimeoutSeconds int    `json:"timeoutSeconds"`
 }
 
 // Source is a configured ingestion channel as seen by the frontend.
@@ -312,5 +317,27 @@ type SourceTestResult struct {
 	OK       bool   `json:"ok"`
 	Mailbox  string `json:"mailbox"`
 	Messages int    `json:"messages"`
+	Message  string `json:"message"`
+	Error    string `json:"error"`
+}
+
+// BrowserRuntime reports whether the Playwright driver and Chromium are ready.
+type BrowserRuntime struct {
+	Ready bool   `json:"ready"`
+	Error string `json:"error"`
+}
+
+// BrowserConnector describes a vendor preset the Sources screen can offer.
+type BrowserConnector struct {
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	LoginURL   string `json:"loginUrl"`
+	BillingURL string `json:"billingUrl"`
+}
+
+// BrowserLoginStatus is emitted while an interactive sign-in is running.
+type BrowserLoginStatus struct {
+	SourceID string `json:"sourceId"`
+	State    string `json:"state"`
 	Error    string `json:"error"`
 }

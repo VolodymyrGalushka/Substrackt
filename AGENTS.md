@@ -6,9 +6,9 @@ Guidance for AI agents and contributors working in this repository.
 
 **Substrackt** is a [Wails v3](https://v3.wails.io/) desktop application (Go
 backend + Svelte 5/TypeScript frontend) that tracks subscriptions and the payment
-methods behind them. Milestones 1–3 (local CRUD, ingestion pipeline plus review
-queue, email sources) are implemented; the roadmap (API connectors, browser
-scraping, renewals) lives in `docs/plan.md`.
+methods behind them. Milestones 1–4 (local CRUD, ingestion pipeline plus review
+queue, email sources, browser sources) are implemented; the roadmap (API
+connectors, renewals) lives in `docs/plan.md`.
 
 Keep changes idiomatic for Wails v3 — it differs substantially from v2.
 
@@ -89,6 +89,7 @@ internal/ingest/        normalization, dedupe, classification, heuristics, extra
 internal/jobs/          persisted job queue with a cancellable worker pool
 internal/llm/           local OpenAI-compatible client (public hosts rejected)
 internal/mail/          go-imap/v2 client and MIME parsing (text/plain preferred)
+internal/browser/       Playwright engine and the vendor connector registry
 internal/secrets/       OS keyring with an AES-GCM encrypted 0600-file fallback
 frontend/src/           Svelte 5 UI: routes/, components/, lib/
 frontend/bindings/      generated TS bindings (do not hand-edit)
@@ -136,12 +137,25 @@ docs/plan.md            architecture and milestones
   advancing on a fetch or pipeline error. A changed `UIDVALIDITY` triggers a
   bounded rescan with `last_uid = 0`. The IMAP client has no context support, so
   cancellation aborts the connection.
-- `SourcesService` is the only bound service for channels. `Create`/enabled
-  `Update` require a password; `Test(id, in)` reuses the stored password when the
-  input password is empty. Passwords are written under the secret ref
-  `source:<id>` and DTOs expose only `HasSecret`. `RevealPassword(id)` exists
-  solely for the explicit **Reveal saved** action; never call it implicitly or
-  put its result in DTOs, events or logs.
+- `SourcesService` is the only bound service for channels. Email `Create` and
+  enabled `Update` require a password; browser sources are created signed out
+  and gain a session through `BeginSignIn`. `Test(id, in)` reuses the stored
+  password or session when the input is empty. Email passwords are written under
+  the secret ref `source:<id>`, browser sessions under `source:<id>:session`;
+  DTOs expose only `HasSecret`. `RevealPassword(id)` exists solely for the
+  explicit **Reveal saved** action, refuses browser sources, and must never be
+  called implicitly or put in DTOs, events or logs.
+- Browser sources use Playwright (`internal/browser`) with a connector registry.
+  A connector declares its login/billing URL, authenticated JavaScript check,
+  ready selector and extraction script; the first entry is GitHub billing.
+  `BeginSignIn` opens a headed Chromium window, polls the authenticated check,
+  and stores the Playwright storage state as a secret. `BrowserManager` serialises
+  sign-ins per source, emits `browser:login` (`starting`, `installing`, `waiting`,
+  `saved`, `failed`, `cancelled`) and clears the session when a sync reports
+  `ErrSessionExpired`. Browser syncs are a `browser.sync` job that runs headless
+  and feeds the shared pipeline; `SourceScheduler` skips sources without a
+  session. The Playwright driver/Chromium are installed on demand into the local
+  Playwright cache, never bundled.
 - IMAP config has `Security` (`tls` implicit, `starttls`, `none` for
   loopback/private hosts only) and `Auth` (`auto`, `login`, `plain`, `xoauth2`).
   `auto` prefers LOGIN, honours `LOGINDISABLED` and only falls back to SASL when
@@ -153,8 +167,11 @@ docs/plan.md            architecture and milestones
   force an app password or XOAUTH2, which stay optional user choices.
 - `SourceScheduler` polls enabled sources on their schedule with an in-memory
   cooldown, so an in-flight sync is not queued twice. It is best-effort; manual
-  **Sync now** is always available. Email syncs emit `source:status`, CRUD emits
+  **Sync now** is always available. Syncs emit `source:status`, CRUD emits
   `source:changed`.
+- `Source` stores two typed configs (`Email`, `Browser`) but only the one for its
+  kind is marshalled. Email rows keep the historical flat JSON shape; do not add
+  a shared union envelope without a migration.
 - Artifacts are redacted before storage; never persist PANs or CVVs.
 
 ## Conventions
@@ -195,6 +212,11 @@ docs/plan.md            architecture and milestones
   client used by `internal/mail`.
 - `github.com/zalando/go-keyring` v0.2.8 — OS keyring lookup for source
   passwords, with the encrypted file backend in `internal/secrets` as fallback.
+- `github.com/mxschmitt/playwright-go` v0.6401.0 — Playwright 1.64.1 driver used
+  by `internal/browser` for headed sign-in and headless billing-page fetches.
+  The driver and Chromium live in the local Playwright cache and are installed
+  on demand; they are not shipped in the binary. Chromium runs as a separate
+  process, so browser syncs must close it on cancellation.
 - `wails3 build` runs `go mod tidy` first (`common:go:mod:tidy`), so a module
   that nothing imports is silently removed from `go.mod` on the next build. If
   you add a library, make sure real code imports it.

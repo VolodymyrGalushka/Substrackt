@@ -26,6 +26,9 @@ type testApp struct {
 	ingest   *IngestionService
 	sources  *SourcesService
 	email    *EmailHandler
+	browser  *BrowserManager
+	bhandler *BrowserHandler
+	bengine  *fakeBrowserEngine
 	secrets  secrets.Store
 	manager  *jobs.Manager
 	notified []ReviewItem
@@ -62,7 +65,12 @@ func newTestApp(t *testing.T) *testApp {
 	manager.Handle(ManualJobKind, handler.RunJob)
 
 	a.secrets = secretStore
-	a.sources = NewSourcesService(st, secretStore, manager)
+	engine := &fakeBrowserEngine{ready: true, loginState: `{"cookies":[],"origins":[]}`}
+	a.bengine = engine
+	a.browser = NewBrowserManager(st, secretStore, engine)
+	a.sources = NewSourcesService(st, secretStore, manager, a.browser)
+	a.bhandler = NewBrowserHandler(st, handler, a.browser)
+	manager.Handle(BrowserJobKind, a.bhandler.RunJob)
 	a.email = NewEmailHandler(st, secretStore, handler)
 	a.email.SetNotifier(func(src Source) {
 		a.sourceStatus = append(a.sourceStatus, src)

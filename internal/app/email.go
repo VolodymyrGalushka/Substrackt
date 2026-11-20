@@ -98,7 +98,7 @@ func (h *EmailHandler) sync(ctx context.Context, jobID, sourceID string, progres
 		return "", fmt.Errorf("source %q is disabled", src.Name)
 	}
 
-	cfg := src.Config
+	cfg := src.Email
 	cfg.Normalize()
 	// Configurations saved before encryption/auth modes existed still need to
 	// fail with a clear message instead of a confusing dial error.

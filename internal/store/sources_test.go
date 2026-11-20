@@ -16,7 +16,7 @@ func TestSourceCRUDAndMailboxCursor(t *testing.T) {
 	src := domain.Source{
 		Kind:            domain.SourceEmail,
 		Name:            "Personal mail",
-		Config:          domain.EmailSourceConfig{Address: "imap.example.com:993", Username: "me@example.com", Mailbox: "INBOX", InitialDays: 30, MaxMessages: 50},
+		Email:           domain.EmailSourceConfig{Address: "imap.example.com:993", Username: "me@example.com", Mailbox: "INBOX", InitialDays: 30, MaxMessages: 50},
 		SecretRef:       "source:test",
 		Enabled:         true,
 		ScheduleMinutes: 15,
@@ -32,7 +32,7 @@ func TestSourceCRUDAndMailboxCursor(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	if got.Name != src.Name || got.Kind != domain.SourceEmail || got.Config.Address != src.Config.Address {
+	if got.Name != src.Name || got.Kind != domain.SourceEmail || got.Email.Address != src.Email.Address {
 		t.Fatalf("roundtrip = %+v", got)
 	}
 	if got.SecretRef != "source:test" || !got.Enabled || got.ScheduleMinutes != 15 {
@@ -41,7 +41,7 @@ func TestSourceCRUDAndMailboxCursor(t *testing.T) {
 
 	got.Enabled = false
 	got.ScheduleMinutes = 60
-	got.Config.MaxMessages = 10
+	got.Email.MaxMessages = 10
 	if err := st.UpdateSource(ctx, &got); err != nil {
 		t.Fatalf("update: %v", err)
 	}
@@ -49,7 +49,7 @@ func TestSourceCRUDAndMailboxCursor(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get updated: %v", err)
 	}
-	if updated.Enabled || updated.ScheduleMinutes != 60 || updated.Config.MaxMessages != 10 {
+	if updated.Enabled || updated.ScheduleMinutes != 60 || updated.Email.MaxMessages != 10 {
 		t.Fatalf("updated = %+v", updated)
 	}
 
@@ -120,5 +120,31 @@ func TestSourceCRUDAndMailboxCursor(t *testing.T) {
 	}
 	if _, err := st.GetSource(ctx, "missing"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("missing source error = %v", err)
+	}
+}
+
+func TestBrowserSourceRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	st := testStore(t)
+
+	src := domain.Source{
+		Kind:            domain.SourceBrowser,
+		Name:            "GitHub billing",
+		Browser:         domain.BrowserSourceConfig{Connector: "github", BillingURL: "https://github.com/settings/billing", TimeoutSeconds: 45},
+		Enabled:         true,
+		ScheduleMinutes: 60,
+	}
+	if err := st.CreateSource(ctx, &src); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	got, err := st.GetSource(ctx, src.ID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.Kind != domain.SourceBrowser || got.Browser.Connector != "github" || got.Browser.TimeoutSeconds != 45 {
+		t.Fatalf("roundtrip = %+v", got)
+	}
+	if got.Email.Address != "" {
+		t.Fatalf("browser source should not carry an email config: %+v", got.Email)
 	}
 }

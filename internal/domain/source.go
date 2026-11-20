@@ -3,6 +3,7 @@ package domain
 import (
 	"fmt"
 	"net"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -14,9 +15,11 @@ type SourceKind string
 const (
 	// SourceEmail reads subscription mail from an IMAP mailbox.
 	SourceEmail SourceKind = "email"
+	// SourceBrowser reads a vendor's billing page through a signed-in browser.
+	SourceBrowser SourceKind = "browser"
 )
 
-func (k SourceKind) Valid() bool { return k == SourceEmail }
+func (k SourceKind) Valid() bool { return k == SourceEmail || k == SourceBrowser }
 
 // DefaultSourceScheduleMinutes is how often an enabled source is polled.
 const DefaultSourceScheduleMinutes = 15
@@ -178,13 +181,59 @@ func mailHostIsLocal(host string) bool {
 	return !strings.Contains(host, ".")
 }
 
+// BrowserSourceConfig selects a vendor connector and optionally overrides the
+// page that is read. The browser session itself is a secret, never config.
+type BrowserSourceConfig struct {
+	// Connector identifies the vendor scraper, e.g. "github".
+	Connector string
+	// BillingURL overrides the connector's default page.
+	BillingURL string
+	// TimeoutSeconds bounds each navigation and login wait.
+	TimeoutSeconds int
+}
+
+// Normalize trims and applies defaults to the browser configuration.
+func (c *BrowserSourceConfig) Normalize() {
+	c.Connector = strings.ToLower(strings.TrimSpace(c.Connector))
+	c.BillingURL = strings.TrimSpace(c.BillingURL)
+	if c.TimeoutSeconds <= 0 {
+		c.TimeoutSeconds = 30
+	}
+}
+
+// Validate checks the browser configuration before it is saved. Connector
+// identifiers and their URLs are validated by the browser package, which owns
+// the registry.
+func (c BrowserSourceConfig) Validate() error {
+	if c.Connector == "" {
+		return fmt.Errorf("browser connector is required")
+	}
+	if c.TimeoutSeconds < 10 || c.TimeoutSeconds > 300 {
+		return fmt.Errorf("browser timeout must be between 10 and 300 seconds")
+	}
+	if c.BillingURL != "" {
+		u, err := url.Parse(c.BillingURL)
+		if err != nil || u.Host == "" {
+			return fmt.Errorf("billing URL is not valid")
+		}
+		if u.Scheme != "https" {
+			return fmt.Errorf("billing URL must use https")
+		}
+		if u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+			return fmt.Errorf("billing URL must not contain credentials, a query or a fragment")
+		}
+	}
+	return nil
+}
+
 // Source is a configured ingestion channel. Its credentials live in the secret
 // store under SecretRef and are never part of the stored config.
 type Source struct {
 	ID              string
 	Kind            SourceKind
 	Name            string
-	Config          EmailSourceConfig
+	Email           EmailSourceConfig
+	Browser         BrowserSourceConfig
 	SecretRef       string
 	Enabled         bool
 	ScheduleMinutes int
@@ -196,10 +245,18 @@ type Source struct {
 
 // Normalize trims and applies defaults.
 func (s *Source) Normalize() {
-	s.Config.Normalize()
 	s.Name = strings.TrimSpace(s.Name)
-	if s.Name == "" {
-		s.Name = s.Config.Username
+	switch s.Kind {
+	case SourceBrowser:
+		s.Browser.Normalize()
+		if s.Name == "" {
+			s.Name = s.Browser.Connector
+		}
+	default:
+		s.Email.Normalize()
+		if s.Name == "" {
+			s.Name = s.Email.Username
+		}
 	}
 	if s.ScheduleMinutes <= 0 {
 		s.ScheduleMinutes = DefaultSourceScheduleMinutes
@@ -219,7 +276,9 @@ func (s Source) Validate() error {
 	}
 	switch s.Kind {
 	case SourceEmail:
-		return s.Config.Validate()
+		return s.Email.Validate()
+	case SourceBrowser:
+		return s.Browser.Validate()
 	default:
 		return fmt.Errorf("unsupported source kind %q", s.Kind)
 	}

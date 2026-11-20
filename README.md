@@ -4,11 +4,11 @@ A desktop app for tracking subscriptions: what you pay, how often, with which
 payment method, and when it renews next. Built with
 [Wails v3](https://v3.wails.io/) (Go backend) and Svelte 5 + TypeScript.
 
-Data lives in a local **SQLite** database — nothing leaves the machine. Milestone 3
-adds email sources: connect an IMAP mailbox and receipts/invoices flow through the
-same review queue as manual imports, optionally parsed by a **local**
-OpenAI-compatible model. The longer-term plan (API connectors, browser scraping)
-is in [`docs/plan.md`](docs/plan.md).
+Data lives in a local **SQLite** database — nothing leaves the machine. Milestones
+3 and 4 add email and browser sources: connect an IMAP mailbox, or sign in to a
+vendor billing page, and the evidence flows through the same review queue as
+manual imports, optionally parsed by a **local** OpenAI-compatible model. The
+longer-term plan (API connectors, renewals) is in [`docs/plan.md`](docs/plan.md).
 
 The interface has light and dark palettes plus **Use system theme**, which
 follows the OS setting live; the choice is remembered locally on the device.
@@ -124,11 +124,32 @@ everything else lands in **Review queue**. A changed `UIDVALIDITY` triggers a
 rescan, and failures are recorded on the source without losing the last good
 cursor.
 
+## Browser sources
+
+**Sources → Add source → Vendor website (browser)** signs in to a vendor's own
+billing page. The first connector is **GitHub**; the page list is extensible in
+`internal/browser`. Choose the connector and, if needed, override the billing URL
+(it must stay on the vendor's host), then **Add source**. Saving opens a separate
+Chromium window where you complete the normal password/2FA/SSO flow. Substrackt
+polls until the vendor reports a signed-in page, closes the window and stores the
+Playwright session as a secret under `source:<id>:session`. Closing the window or
+using **Cancel sign-in** leaves the source signed out.
+
+**Sync now** and the schedule run the page headlessly with that session. The
+visible text is redacted and sent through the same pipeline as email and manual
+text, so dedupe, extraction, matching and review are shared. If the session
+expires, it is removed and the card asks you to sign in again. The Playwright
+driver and Chromium are downloaded on first use through **Install browser
+runtime** (or automatically on the first sign-in) into the local Playwright
+cache; they are not bundled with the app.
+
 ## Dependencies
 
 - `modernc.org/sqlite` — pure-Go SQLite driver (no cgo).
 - `github.com/emersion/go-imap/v2` + `github.com/emersion/go-message` — IMAP and
   MIME parsing for email sources.
+- `github.com/mxschmitt/playwright-go` — headed interactive sign-in and headless
+  billing-page reads for browser sources.
 - `github.com/zalando/go-keyring` — OS keyring access, with the encrypted file
   fallback in `internal/secrets`.
 - `wails3 build` runs `go mod tidy`, so anything nothing imports gets pruned.

@@ -215,26 +215,33 @@ func sourceDTO(src domain.Source) Source {
 		LastSyncAt:      timeString(src.LastSyncAt),
 		LastError:       src.LastError,
 		HasSecret:       src.SecretRef != "",
-		Config:          sourceConfigDTO(src.Config),
+		Config:          sourceConfigDTO(src),
 		CreatedAt:       timeString(src.CreatedAt),
 		UpdatedAt:       timeString(src.UpdatedAt),
 	}
 }
 
-func sourceConfigDTO(cfg domain.EmailSourceConfig) SourceConfig {
+func sourceConfigDTO(src domain.Source) SourceConfig {
+	if src.Kind == domain.SourceBrowser {
+		return SourceConfig{
+			Connector:      src.Browser.Connector,
+			BillingURL:     src.Browser.BillingURL,
+			TimeoutSeconds: src.Browser.TimeoutSeconds,
+		}
+	}
 	return SourceConfig{
-		Address:     cfg.Address,
-		Username:    cfg.Username,
-		Mailbox:     cfg.Mailbox,
-		Security:    cfg.Security,
-		Auth:        cfg.Auth,
-		TLSHost:     cfg.TLSHost,
-		InitialDays: cfg.InitialDays,
-		MaxMessages: cfg.MaxMessages,
+		Address:     src.Email.Address,
+		Username:    src.Email.Username,
+		Mailbox:     src.Email.Mailbox,
+		Security:    src.Email.Security,
+		Auth:        src.Email.Auth,
+		TLSHost:     src.Email.TLSHost,
+		InitialDays: src.Email.InitialDays,
+		MaxMessages: src.Email.MaxMessages,
 	}
 }
 
-func sourceConfigDomain(cfg SourceConfig) domain.EmailSourceConfig {
+func sourceEmailConfig(cfg SourceConfig) domain.EmailSourceConfig {
 	return domain.EmailSourceConfig{
 		Address:     cfg.Address,
 		Username:    cfg.Username,
@@ -244,5 +251,13 @@ func sourceConfigDomain(cfg SourceConfig) domain.EmailSourceConfig {
 		TLSHost:     cfg.TLSHost,
 		InitialDays: cfg.InitialDays,
 		MaxMessages: cfg.MaxMessages,
+	}
+}
+
+func sourceBrowserConfig(cfg SourceConfig) domain.BrowserSourceConfig {
+	return domain.BrowserSourceConfig{
+		Connector:      cfg.Connector,
+		BillingURL:     cfg.BillingURL,
+		TimeoutSeconds: cfg.TimeoutSeconds,
 	}
 }
