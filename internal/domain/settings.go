@@ -11,6 +11,17 @@ import (
 // below this value, so only an LLM can auto-apply.
 const DefaultAutoApplyThreshold = 0.9
 
+// Browser runtimes select which Chromium-family binary browser sources use.
+// "auto" prefers an installed browser and falls back to the bundled one.
+const (
+	BrowserRuntimeAuto     = "auto"
+	BrowserRuntimeBundled  = "bundled"
+	BrowserRuntimeChrome   = "chrome"
+	BrowserRuntimeChromium = "chromium"
+	BrowserRuntimeBrave    = "brave"
+	BrowserRuntimeEdge     = "edge"
+)
+
 // Settings are the application-wide preferences stored in SQLite.
 type Settings struct {
 	// Timezone is an IANA name used to decide what "today" is. Empty means the
@@ -28,6 +39,8 @@ type Settings struct {
 	// subscriptions directly instead of waiting in the review queue.
 	AutoApply          bool
 	AutoApplyThreshold float64
+	// BrowserRuntime selects the browser binary used by browser sources.
+	BrowserRuntime string
 }
 
 // DefaultSettings returns the settings used before the user saves any.
@@ -37,6 +50,7 @@ func DefaultSettings() Settings {
 		LLMTimeoutSeconds:  60,
 		AutoApply:          true,
 		AutoApplyThreshold: DefaultAutoApplyThreshold,
+		BrowserRuntime:     BrowserRuntimeAuto,
 	}
 }
 
@@ -46,6 +60,10 @@ func (s *Settings) Normalize() {
 	s.BaseCurrency = strings.ToUpper(strings.TrimSpace(s.BaseCurrency))
 	s.LLMBaseURL = strings.TrimSpace(s.LLMBaseURL)
 	s.LLMModel = strings.TrimSpace(s.LLMModel)
+	s.BrowserRuntime = strings.ToLower(strings.TrimSpace(s.BrowserRuntime))
+	if s.BrowserRuntime == "" {
+		s.BrowserRuntime = BrowserRuntimeAuto
+	}
 }
 
 // Validate checks the settings that do not depend on the LLM transport. The
@@ -73,6 +91,16 @@ func (s Settings) Validate() error {
 	}
 	if s.LLMBaseURL == "" && s.LLMModel != "" {
 		return fmt.Errorf("an LLM endpoint is required when a model is configured")
+	}
+	browserRuntime := s.BrowserRuntime
+	if browserRuntime == "" {
+		browserRuntime = BrowserRuntimeAuto
+	}
+	switch browserRuntime {
+	case BrowserRuntimeAuto, BrowserRuntimeBundled, BrowserRuntimeChrome,
+		BrowserRuntimeChromium, BrowserRuntimeBrave, BrowserRuntimeEdge:
+	default:
+		return fmt.Errorf("unknown browser runtime %q", s.BrowserRuntime)
 	}
 	return nil
 }

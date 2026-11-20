@@ -25,10 +25,10 @@ type PageData struct {
 
 // Engine is the browser automation surface used by the app. Tests use a fake.
 type Engine interface {
-	Ready() (bool, string)
-	Install(ctx context.Context, progress func(string)) error
-	Login(ctx context.Context, connector Connector, timeout time.Duration) (storageState string, err error)
-	Fetch(ctx context.Context, connector Connector, storageState string, pageURL string, timeout time.Duration) (PageData, error)
+	Ready(options Options) (bool, string)
+	Install(ctx context.Context, options Options, progress func(string)) error
+	Login(ctx context.Context, connector Connector, options Options, timeout time.Duration) (storageState string, err error)
+	Fetch(ctx context.Context, connector Connector, options Options, storageState string, pageURL string, timeout time.Duration) (PageData, error)
 	Close() error
 }
 
@@ -59,8 +59,19 @@ func (p *Playwright) instance() (*playwright.Playwright, error) {
 	return pw, nil
 }
 
-// Ready reports whether the driver and Chromium are installed.
-func (p *Playwright) Ready() (bool, string) {
+// Ready reports whether the selected browser and the Playwright driver are
+// installed. A system browser still needs the driver, but not the bundled
+// Chromium download.
+func (p *Playwright) Ready(options Options) (bool, string) {
+	if options.ExecutablePath != "" {
+		if !isExecutableFile(options.ExecutablePath) {
+			return false, "the selected browser is not installed"
+		}
+		if _, err := p.instance(); err != nil {
+			return false, err.Error()
+		}
+		return true, ""
+	}
 	pw, err := p.instance()
 	if err != nil {
 		return false, err.Error()
@@ -72,16 +83,22 @@ func (p *Playwright) Ready() (bool, string) {
 	return true, ""
 }
 
-// Install downloads the Playwright driver and Chromium. It is idempotent.
-func (p *Playwright) Install(ctx context.Context, progress func(string)) error {
+// Install downloads the Playwright driver. The bundled Chromium is downloaded
+// only when the selected runtime needs it. It is idempotent.
+func (p *Playwright) Install(ctx context.Context, options Options, progress func(string)) error {
 	if progress != nil {
-		progress("Downloading the Playwright driver and Chromium (first run only)")
+		if options.ExecutablePath != "" {
+			progress("Downloading the Playwright driver (first run only)")
+		} else {
+			progress("Downloading the Playwright driver and Chromium (first run only)")
+		}
 	}
 	done := make(chan error, 1)
 	go func() {
 		done <- playwright.Install(&playwright.RunOptions{
-			Browsers: []string{"chromium"},
-			Verbose:  false,
+			Browsers:            []string{"chromium"},
+			SkipInstallBrowsers: options.ExecutablePath != "",
+			Verbose:             false,
 		})
 	}()
 	select {
@@ -105,14 +122,12 @@ func (p *Playwright) Install(ctx context.Context, progress func(string)) error {
 // Login opens a headed browser for the user to sign in and returns the storage
 // state to keep as a secret. It polls the connector's authenticated check until
 // the session is usable, the context is cancelled, or the timeout elapses.
-func (p *Playwright) Login(ctx context.Context, connector Connector, timeout time.Duration) (string, error) {
+func (p *Playwright) Login(ctx context.Context, connector Connector, options Options, timeout time.Duration) (string, error) {
 	pw, err := p.instance()
 	if err != nil {
 		return "", err
 	}
-	browser, err := pw.Chromium.Launch(playwright.BrowserTypeLaunchOptions{
-		Headless: playwright.Bool(false),
-	})
+	browser, err := pw.Chromium.Launch(launchOptions(options, false))
 	if err != nil {
 		return "", fmt.Errorf("open browser: %w", err)
 	}
@@ -176,20 +191,18 @@ func (p *Playwright) Login(ctx context.Context, connector Connector, timeout tim
 
 // Fetch loads the billing page with a saved session and returns its readable
 // text. It reports ErrSessionExpired when the site asks for a sign-in.
-func (p *Playwright) Fetch(ctx context.Context, connector Connector, storageState, pageURL string, timeout time.Duration) (PageData, error) {
+func (p *Playwright) Fetch(ctx context.Context, connector Connector, options Options, storageState, pageURL string, timeout time.Duration) (PageData, error) {
 	pw, err := p.instance()
 	if err != nil {
 		return PageData{}, err
 	}
-	browser, err := pw.Chromium.Launch(playwright.BrowserTypeLaunchOptions{
-		Headless: playwright.Bool(true),
-	})
+	browser, err := pw.Chromium.Launch(launchOptions(options, true))
 	if err != nil {
 		return PageData{}, fmt.Errorf("open browser: %w", err)
 	}
 	defer func() { _ = browser.Close() }()
 
-	options := playwright.BrowserNewContextOptions{
+	contextOptions := playwright.BrowserNewContextOptions{
 		Locale:   playwright.String("en-US"),
 		Viewport: &playwright.Size{Width: 1280, Height: 900},
 	}
@@ -198,9 +211,9 @@ func (p *Playwright) Fetch(ctx context.Context, connector Connector, storageStat
 		if err := json.Unmarshal([]byte(storageState), &state); err != nil {
 			return PageData{}, fmt.Errorf("decode browser session: %w", err)
 		}
-		options.StorageState = &state
+		contextOptions.StorageState = &state
 	}
-	bctx, err := browser.NewContext(options)
+	bctx, err := browser.NewContext(contextOptions)
 	if err != nil {
 		return PageData{}, fmt.Errorf("create browser context: %w", err)
 	}
@@ -262,6 +275,14 @@ func (p *Playwright) Close() error {
 	err := p.pw.Stop()
 	p.pw = nil
 	return err
+}
+
+func launchOptions(options Options, headless bool) playwright.BrowserTypeLaunchOptions {
+	launch := playwright.BrowserTypeLaunchOptions{Headless: playwright.Bool(headless)}
+	if options.ExecutablePath != "" {
+		launch.ExecutablePath = playwright.String(options.ExecutablePath)
+	}
+	return launch
 }
 
 func closeOnCancel(ctx context.Context, browser playwright.Browser) func() {

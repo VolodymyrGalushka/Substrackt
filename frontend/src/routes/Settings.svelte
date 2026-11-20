@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import type { LLMTestResult, Settings } from "../lib/api";
-  import { SettingsService, errorMessage } from "../lib/api";
+  import type { BrowserRuntime, LLMTestResult, Settings } from "../lib/api";
+  import { SettingsService, SourcesService, errorMessage } from "../lib/api";
   import { loadLLMUsage, loadSettings, store } from "../lib/state.svelte";
   import { setTheme, theme, type ThemeMode } from "../lib/theme.svelte";
 
@@ -11,6 +11,7 @@
   let notice = $state("");
   let formError = $state("");
   let testResult = $state<LLMTestResult | null>(null);
+  let runtimeStatus = $state<BrowserRuntime | null>(null);
   let loaded = $state(false);
 
   const presets = [
@@ -34,6 +35,7 @@
       llmTimeoutSeconds: 60,
       autoApply: true,
       autoApplyThreshold: 0.9,
+      browserRuntime: "auto",
     };
   }
 
@@ -49,7 +51,26 @@
   onMount(() => {
     void loadLLMUsage();
     void loadSettings();
+    void refreshBrowserRuntime();
   });
+
+  async function refreshBrowserRuntime() {
+    try {
+      runtimeStatus = await SourcesService.BrowserRuntime();
+    } catch {
+      runtimeStatus = {
+        ready: false,
+        error: "",
+        selected: "auto",
+        resolved: "",
+        resolvedName: "",
+        options: [
+          { id: "auto", name: "Automatic (recommended)", installed: true },
+          { id: "bundled", name: "Bundled Chromium", installed: true },
+        ],
+      };
+    }
+  }
 
   function applyPreset(preset: (typeof presets)[number]) {
     form.llmBaseUrl = preset.url;
@@ -76,6 +97,7 @@
       store.settings = saved;
       form = { ...saved };
       notice = "Settings saved.";
+      await refreshBrowserRuntime();
     } catch (err) {
       formError = errorMessage(err);
     } finally {
@@ -106,6 +128,7 @@
       testResult = null;
       notice = "Defaults restored.";
       await loadLLMUsage();
+      await refreshBrowserRuntime();
     } catch (err) {
       formError = errorMessage(err);
     }
@@ -207,6 +230,40 @@
               {option.label}
             </button>
           {/each}
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h3>Browser sign-in</h3>
+      <p class="callout">
+        Browser sources use a Chromium browser. An installed Chrome or Brave is recommended,
+        especially for “Continue with Google” sign-in; bundled Chromium is the fallback.
+      </p>
+
+      <div class="form-grid" style="margin-top: 14px;">
+        <div class="field span-2">
+          <label for="settings-browser-runtime">Browser for sign-in and sync</label>
+          <select
+            id="settings-browser-runtime"
+            class="select"
+            bind:value={form.browserRuntime}
+          >
+            {#each runtimeStatus?.options ?? [] as option (option.id)}
+              <option value={option.id} disabled={!option.installed}>
+                {option.name}{option.installed ? "" : " (not installed)"}
+              </option>
+            {/each}
+          </select>
+          <span class="field-hint">
+            Automatic prefers installed Chrome, then Brave or Chromium, and falls back to bundled
+            Chromium. Changing this setting does not sign you out.
+          </span>
+          {#if runtimeStatus?.error}
+            <span class="field-hint error-text">{runtimeStatus.error}</span>
+          {:else if runtimeStatus?.resolvedName}
+            <span class="field-hint">Currently resolving to {runtimeStatus.resolvedName}.</span>
+          {/if}
         </div>
       </div>
     </section>

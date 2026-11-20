@@ -155,7 +155,13 @@ docs/plan.md            architecture and milestones
   `ErrSessionExpired`. Browser syncs are a `browser.sync` job that runs headless
   and feeds the shared pipeline; `SourceScheduler` skips sources without a
   session. The Playwright driver/Chromium are installed on demand into the local
-  Playwright cache, never bundled.
+  Playwright cache, never bundled. `Settings.BrowserRuntime` selects the binary:
+  `auto` prefers installed Chrome, Brave, Chromium or Edge and falls back to
+  bundled Chromium. System browsers still need the Playwright driver but not the
+  Chromium download; `BrowserManager` resolves the preference per launch and
+  passes it to both headed sign-in and headless sync. Prefer an installed Chrome
+  for Google SSO, which rejects Playwright's Chrome-for-Testing build; never add
+  stealth or anti-bot flags to work around a vendor block.
 - IMAP config has `Security` (`tls` implicit, `starttls`, `none` for
   loopback/private hosts only) and `Auth` (`auto`, `login`, `plain`, `xoauth2`).
   `auto` prefers LOGIN, honours `LOGINDISABLED` and only falls back to SASL when

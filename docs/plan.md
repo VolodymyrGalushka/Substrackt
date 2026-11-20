@@ -147,14 +147,22 @@ The connector registry lives in `internal/browser` and currently has one entry:
 URL, a JavaScript authenticated check, a ready selector and the extraction
 script.
 
-Sign-in is interactive: **Sign in** opens a separate headed Chromium window via
-Playwright, lets the user complete password/2FA/SSO, and polls the connector's
+Sign-in is interactive: **Sign in** opens a separate headed browser window via
+Playwright (installed Chrome/Brave when available), lets the user complete password/2FA/SSO, and polls the connector's
 authenticated check. When it passes, the Playwright storage state is written to
 the secret store under `source:<id>:session`; it is never written to SQLite or
 returned by a bound method. Closing the window, cancelling or timing out leaves
 the source signed out. The Playwright driver and Chromium are downloaded on
 first use (or with **Install browser runtime**) and are reused from the local
 Playwright cache.
+
+Settings → **Browser sign-in** selects the binary. `auto` prefers an installed
+Chrome, Brave, Chromium or Edge and falls back to bundled Chromium; an explicit
+system browser still needs the Playwright driver but skips the Chromium
+download. Installed Chrome is the recommended choice for Google SSO, which
+rejects Playwright's Chrome-for-Testing build. No stealth or anti-bot flags are
+added; a vendor that still blocks automation is handled through email, API or
+manual input instead.
 
 **Sync now** and the scheduler run a headless fetch with that session. The page
 text is redacted and ingested through the same pipeline as email and manual

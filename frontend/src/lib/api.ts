@@ -27,6 +27,7 @@ export type {
   BrowserConnector,
   BrowserLoginStatus,
   BrowserRuntime,
+  BrowserRuntimeOption,
   DashboardSummary,
   Job,
   JobCounts,

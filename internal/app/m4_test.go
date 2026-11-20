@@ -10,42 +10,49 @@ import (
 )
 
 type fakeBrowserEngine struct {
-	ready      bool
-	readyError string
-	installs   int
-	loginState string
-	loginErr   error
-	page       browser.PageData
-	fetchErr   error
-	fetches    int
-	closed     bool
+	ready       bool
+	readyError  string
+	installs    int
+	loginState  string
+	loginErr    error
+	page        browser.PageData
+	fetchErr    error
+	fetches     int
+	closed      bool
+	lastOptions browser.Options
 }
 
-func (f *fakeBrowserEngine) Ready() (bool, string) { return f.ready, f.readyError }
+func (f *fakeBrowserEngine) Ready(options browser.Options) (bool, string) {
+	f.lastOptions = options
+	return f.ready, f.readyError
+}
 
-func (f *fakeBrowserEngine) Install(ctx context.Context, progress func(string)) error {
+func (f *fakeBrowserEngine) Install(ctx context.Context, options browser.Options, progress func(string)) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	f.lastOptions = options
 	f.installs++
 	f.ready = true
 	return nil
 }
 
-func (f *fakeBrowserEngine) Login(ctx context.Context, connector browser.Connector, timeout time.Duration) (string, error) {
+func (f *fakeBrowserEngine) Login(ctx context.Context, connector browser.Connector, options browser.Options, timeout time.Duration) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
+	f.lastOptions = options
 	if f.loginErr != nil {
 		return "", f.loginErr
 	}
 	return f.loginState, nil
 }
 
-func (f *fakeBrowserEngine) Fetch(ctx context.Context, connector browser.Connector, storageState, pageURL string, timeout time.Duration) (browser.PageData, error) {
+func (f *fakeBrowserEngine) Fetch(ctx context.Context, connector browser.Connector, options browser.Options, storageState, pageURL string, timeout time.Duration) (browser.PageData, error) {
 	if err := ctx.Err(); err != nil {
 		return browser.PageData{}, err
 	}
+	f.lastOptions = options
 	f.fetches++
 	if f.fetchErr != nil {
 		return browser.PageData{}, f.fetchErr
@@ -285,3 +292,56 @@ func TestBrowserLoginCancellation(t *testing.T) {
 }
 
 var _ browser.Engine = (*fakeBrowserEngine)(nil)
+
+func TestSettingsBrowserRuntime(t *testing.T) {
+	a := newTestApp(t)
+
+	saved, err := a.settings.Update(Settings{
+		BaseCurrency:      "USD",
+		LLMTimeoutSeconds: 60,
+		BrowserRuntime:    " CHROME ",
+	})
+	if err != nil {
+		t.Fatalf("update browser runtime: %v", err)
+	}
+	if saved.BrowserRuntime != "chrome" {
+		t.Fatalf("browser runtime = %q, want chrome", saved.BrowserRuntime)
+	}
+
+	if _, err := a.settings.Update(Settings{
+		BaseCurrency:      "USD",
+		LLMTimeoutSeconds: 60,
+		BrowserRuntime:    "magic",
+	}); err == nil {
+		t.Fatal("expected an unknown browser runtime to be rejected")
+	}
+
+	status := a.sources.BrowserRuntime()
+	if status.Selected != "chrome" {
+		t.Fatalf("selected = %q, want chrome", status.Selected)
+	}
+	if len(status.Options) == 0 {
+		t.Fatal("runtime status should list the available browsers")
+	}
+
+	reset, err := a.settings.Reset()
+	if err != nil {
+		t.Fatalf("reset: %v", err)
+	}
+	if reset.BrowserRuntime != "auto" {
+		t.Fatalf("reset browser runtime = %q, want auto", reset.BrowserRuntime)
+	}
+	status = a.sources.BrowserRuntime()
+	if status.Selected != "auto" {
+		t.Fatalf("selected after reset = %q, want auto", status.Selected)
+	}
+	foundBundled := false
+	for _, option := range status.Options {
+		if option.ID == "bundled" {
+			foundBundled = true
+		}
+	}
+	if !foundBundled {
+		t.Fatalf("options = %+v, want bundled Chromium", status.Options)
+	}
+}

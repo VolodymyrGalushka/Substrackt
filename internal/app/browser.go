@@ -85,15 +85,60 @@ func (m *BrowserManager) emitSource(src domain.Source) {
 	}
 }
 
-// Runtime reports whether Playwright and Chromium are ready.
+// Runtime reports which browser runtime is selected and whether it is ready.
 func (m *BrowserManager) Runtime() BrowserRuntime {
-	ready, reason := m.engine.Ready()
-	return BrowserRuntime{Ready: ready, Error: reason}
+	settings, err := m.store.GetSettings(context.Background())
+	if err != nil {
+		return BrowserRuntime{Error: "load settings: " + err.Error()}
+	}
+	return m.runtimeStatus(settings.BrowserRuntime)
 }
 
-// Install downloads the Playwright driver and Chromium.
+func (m *BrowserManager) runtimeStatus(selected string) BrowserRuntime {
+	options := browser.AvailableRuntimes()
+	status := BrowserRuntime{
+		Selected: selected,
+		Options:  browserRuntimeOptions(options),
+	}
+	resolved, err := browser.ResolveRuntime(selected)
+	if err != nil {
+		status.Error = err.Error()
+		return status
+	}
+	status.Resolved = resolved.ID
+	status.ResolvedName = resolved.Name
+	status.Ready, status.Error = m.engine.Ready(browser.OptionsFor(resolved))
+	return status
+}
+
+func browserRuntimeOptions(runtimes []browser.Runtime) []BrowserRuntimeOption {
+	out := make([]BrowserRuntimeOption, 0, len(runtimes))
+	for _, rt := range runtimes {
+		out = append(out, BrowserRuntimeOption{
+			ID:        rt.ID,
+			Name:      rt.Name,
+			Installed: rt.Installed,
+		})
+	}
+	return out
+}
+
+// resolvedRuntime reads the current preference and resolves it to a browser.
+func (m *BrowserManager) resolvedRuntime(ctx context.Context) (browser.Runtime, error) {
+	settings, err := m.store.GetSettings(ctx)
+	if err != nil {
+		return browser.Runtime{}, fmt.Errorf("load browser settings: %w", err)
+	}
+	return browser.ResolveRuntime(settings.BrowserRuntime)
+}
+
+// Install downloads the Playwright driver, plus bundled Chromium when needed.
 func (m *BrowserManager) Install(ctx context.Context) error {
-	return m.engine.Install(ctx, nil)
+	resolved, err := m.resolvedRuntime(ctx)
+	if err != nil {
+		return err
+	}
+	return m.engine.Install(ctx, browser.OptionsFor(resolved), nil)
 }
 
 // BeginLogin starts an interactive sign-in and returns immediately. Progress is
@@ -106,6 +151,11 @@ func (m *BrowserManager) BeginLogin(src domain.Source) error {
 	if err != nil {
 		return err
 	}
+	resolved, err := m.resolvedRuntime(context.Background())
+	if err != nil {
+		return err
+	}
+	options := browser.OptionsFor(resolved)
 
 	m.mu.Lock()
 	if _, running := m.logins[src.ID]; running {
@@ -127,10 +177,10 @@ func (m *BrowserManager) BeginLogin(src domain.Source) error {
 		status := BrowserLoginStatus{SourceID: src.ID, State: "starting"}
 		m.emit(status)
 
-		if ready, _ := m.engine.Ready(); !ready {
+		if ready, _ := m.engine.Ready(options); !ready {
 			status.State = "installing"
 			m.emit(status)
-			if err := m.engine.Install(ctx, nil); err != nil {
+			if err := m.engine.Install(ctx, options, nil); err != nil {
 				m.failLogin(status, err)
 				return
 			}
@@ -143,7 +193,7 @@ func (m *BrowserManager) BeginLogin(src domain.Source) error {
 		status.State = "waiting"
 		m.emit(status)
 
-		state, err := m.engine.Login(ctx, connector, 10*time.Minute)
+		state, err := m.engine.Login(ctx, connector, options, 10*time.Minute)
 		if err != nil {
 			if ctx.Err() != nil || errors.Is(err, context.Canceled) {
 				m.cancelLogin(status)
@@ -211,6 +261,10 @@ func (m *BrowserManager) Fetch(ctx context.Context, src domain.Source, progress 
 	if err != nil {
 		return browser.PageData{}, err
 	}
+	resolved, err := m.resolvedRuntime(ctx)
+	if err != nil {
+		return browser.PageData{}, err
+	}
 	if src.SecretRef == "" {
 		return browser.PageData{}, fmt.Errorf("source %q is not signed in; use Sign in first", src.Name)
 	}
@@ -229,7 +283,7 @@ func (m *BrowserManager) Fetch(ctx context.Context, src domain.Source, progress 
 	if timeout < 10*time.Second {
 		timeout = 30 * time.Second
 	}
-	page, err := m.engine.Fetch(ctx, connector, state, pageURL, timeout)
+	page, err := m.engine.Fetch(ctx, connector, browser.OptionsFor(resolved), state, pageURL, timeout)
 	if errors.Is(err, browser.ErrSessionExpired) {
 		m.clearSession(ctx, src)
 		return browser.PageData{}, fmt.Errorf("session for %q expired; sign in again", src.Name)

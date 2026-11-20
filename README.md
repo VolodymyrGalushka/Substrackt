@@ -130,7 +130,8 @@ cursor.
 billing page. The first connector is **GitHub**; the page list is extensible in
 `internal/browser`. Choose the connector and, if needed, override the billing URL
 (it must stay on the vendor's host), then **Add source**. Saving opens a separate
-Chromium window where you complete the normal password/2FA/SSO flow. Substrackt
+browser window (installed Chrome/Brave when available) where you complete the
+normal password/2FA/SSO flow. Substrackt
 polls until the vendor reports a signed-in page, closes the window and stores the
 Playwright session as a secret under `source:<id>:session`. Closing the window or
 using **Cancel sign-in** leaves the source signed out.
@@ -142,6 +143,13 @@ expires, it is removed and the card asks you to sign in again. The Playwright
 driver and Chromium are downloaded on first use through **Install browser
 runtime** (or automatically on the first sign-in) into the local Playwright
 cache; they are not bundled with the app.
+
+**Settings → Browser sign-in** chooses the browser binary. **Automatic** prefers
+an installed Chrome, Brave, Chromium or Edge, then falls back to bundled
+Chromium. Using installed Chrome is recommended for GitHub’s **Continue with
+Google** flow, which often rejects Playwright’s Chrome-for-Testing build. A
+system browser still needs the Playwright driver, but not the bundled Chromium
+download.
 
 ## Dependencies
 

@@ -21,7 +21,8 @@ func TestPlaywrightFetchLocalPage(t *testing.T) {
 
 	engine := NewPlaywright()
 	defer func() { _ = engine.Close() }()
-	if ready, reason := engine.Ready(); !ready {
+	options := Options{ExecutablePath: os.Getenv("SUBSTRACKT_BROWSER_EXECUTABLE")}
+	if ready, reason := engine.Ready(options); !ready {
 		t.Fatalf("Playwright is not ready: %s", reason)
 	}
 
@@ -32,7 +33,7 @@ func TestPlaywrightFetchLocalPage(t *testing.T) {
 		AuthenticatedJS: "true",
 		ReadySelector:   "main",
 		ExtractJS:       "document.body.innerText",
-	}, "", server.URL, 20*time.Second)
+	}, options, "", server.URL, 20*time.Second)
 	if err != nil {
 		t.Fatalf("fetch: %v", err)
 	}

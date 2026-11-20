@@ -21,11 +21,24 @@ export interface BrowserLoginStatus {
 }
 
 /**
- * BrowserRuntime reports whether the Playwright driver and Chromium are ready.
+ * BrowserRuntime reports the selected browser and whether it is ready.
  */
 export interface BrowserRuntime {
     "ready": boolean;
     "error": string;
+    "selected": string;
+    "resolved": string;
+    "resolvedName": string;
+    "options": BrowserRuntimeOption[] | null;
+}
+
+/**
+ * BrowserRuntimeOption is one selectable browser binary.
+ */
+export interface BrowserRuntimeOption {
+    "id": string;
+    "name": string;
+    "installed": boolean;
 }
 
 /**
@@ -234,6 +247,7 @@ export interface Settings {
     "llmTimeoutSeconds": number;
     "autoApply": boolean;
     "autoApplyThreshold": number;
+    "browserRuntime": string;
 }
 
 /**

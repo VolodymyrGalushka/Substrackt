@@ -57,7 +57,14 @@
     try {
       runtime = await SourcesService.BrowserRuntime();
     } catch {
-      runtime = { ready: false, error: "Browser support is unavailable" };
+      runtime = {
+        ready: false,
+        error: "Browser support is unavailable",
+        selected: "auto",
+        resolved: "",
+        resolvedName: "",
+        options: [],
+      };
     }
   }
 
@@ -476,13 +483,25 @@
   {#if runtime && !runtime.ready}
     <div class="banner" role="status">
       <span>
-        Browser sign-in needs the Playwright runtime
-        {runtime.error ? `(${runtime.error})` : ""}.
+        {#if runtime.resolved}
+          Browser sign-in needs the Playwright driver
+          {runtime.error ? `(${runtime.error})` : ""}.
+        {:else}
+          {runtime.error || "The selected browser is not available."}
+          Change the browser in Settings.
+        {/if}
       </span>
-      <button class="btn sm" onclick={installBrowser} disabled={installing}>
-        {installing ? "Installing…" : "Install browser runtime"}
-      </button>
+      {#if runtime.resolved}
+        <button class="btn sm" onclick={installBrowser} disabled={installing}>
+          {installing ? "Installing…" : "Install browser runtime"}
+        </button>
+      {/if}
     </div>
+  {:else if runtime?.resolvedName}
+    <p class="field-hint" style="margin: -4px 0 12px;">
+      Browser sign-in uses {runtime.resolvedName}.
+      <a href="#/settings">Change in Settings</a>
+    </p>
   {/if}
 
   {#if sources.length === 0}

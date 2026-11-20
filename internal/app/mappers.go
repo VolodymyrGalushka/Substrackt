@@ -154,6 +154,7 @@ func settingsDTO(s domain.Settings) Settings {
 		LLMTimeoutSeconds:  s.LLMTimeoutSeconds,
 		AutoApply:          s.AutoApply,
 		AutoApplyThreshold: s.AutoApplyThreshold,
+		BrowserRuntime:     s.BrowserRuntime,
 	}
 }
 
@@ -166,6 +167,7 @@ func settingsDomain(s Settings) domain.Settings {
 		LLMTimeoutSeconds:  s.LLMTimeoutSeconds,
 		AutoApply:          s.AutoApply,
 		AutoApplyThreshold: s.AutoApplyThreshold,
+		BrowserRuntime:     s.BrowserRuntime,
 	}
 }
 

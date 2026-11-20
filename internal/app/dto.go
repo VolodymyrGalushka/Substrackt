@@ -245,6 +245,7 @@ type Settings struct {
 	LLMTimeoutSeconds  int     `json:"llmTimeoutSeconds"`
 	AutoApply          bool    `json:"autoApply"`
 	AutoApplyThreshold float64 `json:"autoApplyThreshold"`
+	BrowserRuntime     string  `json:"browserRuntime"`
 }
 
 // LLMTestResult is the outcome of probing the local endpoint.
@@ -321,10 +322,21 @@ type SourceTestResult struct {
 	Error    string `json:"error"`
 }
 
-// BrowserRuntime reports whether the Playwright driver and Chromium are ready.
+// BrowserRuntime reports the selected browser and whether it is ready.
 type BrowserRuntime struct {
-	Ready bool   `json:"ready"`
-	Error string `json:"error"`
+	Ready        bool                   `json:"ready"`
+	Error        string                 `json:"error"`
+	Selected     string                 `json:"selected"`
+	Resolved     string                 `json:"resolved"`
+	ResolvedName string                 `json:"resolvedName"`
+	Options      []BrowserRuntimeOption `json:"options"`
+}
+
+// BrowserRuntimeOption is one selectable browser binary.
+type BrowserRuntimeOption struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Installed bool   `json:"installed"`
 }
 
 // BrowserConnector describes a vendor preset the Sources screen can offer.
