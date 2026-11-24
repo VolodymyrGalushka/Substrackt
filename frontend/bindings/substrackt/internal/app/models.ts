@@ -29,6 +29,7 @@ export interface BrowserRuntime {
     "selected": string;
     "resolved": string;
     "resolvedName": string;
+    "signIn": string;
     "options": BrowserRuntimeOption[] | null;
 }
 
@@ -248,6 +249,7 @@ export interface Settings {
     "autoApply": boolean;
     "autoApplyThreshold": number;
     "browserRuntime": string;
+    "browserSignIn": string;
 }
 
 /**

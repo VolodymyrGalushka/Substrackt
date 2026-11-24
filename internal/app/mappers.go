@@ -155,6 +155,7 @@ func settingsDTO(s domain.Settings) Settings {
 		AutoApply:          s.AutoApply,
 		AutoApplyThreshold: s.AutoApplyThreshold,
 		BrowserRuntime:     s.BrowserRuntime,
+		BrowserSignIn:      s.BrowserSignIn,
 	}
 }
 
@@ -168,6 +169,7 @@ func settingsDomain(s Settings) domain.Settings {
 		AutoApply:          s.AutoApply,
 		AutoApplyThreshold: s.AutoApplyThreshold,
 		BrowserRuntime:     s.BrowserRuntime,
+		BrowserSignIn:      s.BrowserSignIn,
 	}
 }
 

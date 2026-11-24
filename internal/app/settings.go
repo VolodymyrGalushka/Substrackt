@@ -26,6 +26,7 @@ func (s *SettingsService) Get() (Settings, error) {
 	if err != nil {
 		return Settings{}, err
 	}
+	settings.Normalize()
 	return settingsDTO(settings), nil
 }
 

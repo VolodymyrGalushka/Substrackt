@@ -147,22 +147,25 @@ The connector registry lives in `internal/browser` and currently has one entry:
 URL, a JavaScript authenticated check, a ready selector and the extraction
 script.
 
-Sign-in is interactive: **Sign in** opens a separate headed browser window via
-Playwright (installed Chrome/Brave when available), lets the user complete password/2FA/SSO, and polls the connector's
-authenticated check. When it passes, the Playwright storage state is written to
-the secret store under `source:<id>:session`; it is never written to SQLite or
-returned by a bound method. Closing the window, cancelling or timing out leaves
-the source signed out. The Playwright driver and Chromium are downloaded on
-first use (or with **Install browser runtime**) and are reused from the local
-Playwright cache.
+Sign-in is interactive. The default method opens a new tab in the user's own
+browser, waits for the connector's session cookie, and imports only the cookies
+that apply to the vendor page. The isolated method opens a headed Playwright
+window (installed Chrome/Brave when available), lets the user complete
+password/2FA/SSO, and waits for the connector's authenticated check. Either way
+the resulting storage state is written to the secret store under
+`source:<id>:session`; it is never written to SQLite or returned by a bound
+method. Cancelling or timing out leaves the source signed out. The Playwright
+driver and Chromium are downloaded on first use (or with **Install browser
+runtime**) and are reused from the local Playwright cache.
 
-Settings → **Browser sign-in** selects the binary. `auto` prefers an installed
-Chrome, Brave, Chromium or Edge and falls back to bundled Chromium; an explicit
-system browser still needs the Playwright driver but skips the Chromium
-download. Installed Chrome is the recommended choice for Google SSO, which
-rejects Playwright's Chrome-for-Testing build. No stealth or anti-bot flags are
-added; a vendor that still blocks automation is handled through email, API or
-manual input instead.
+Settings → **Browser sign-in** selects the method and the sync binary. The
+default method opens a new tab in the user's own browser and imports only the
+vendor's session cookies, so an existing Google session is reused; the isolated
+method opens a Playwright window. `auto` prefers an installed Chrome, Brave,
+Chromium or Edge and falls back to bundled Chromium; an explicit system browser
+still needs the Playwright driver but skips the Chromium download. No stealth or
+anti-bot flags are added; a vendor that still blocks automation is handled
+through email, API or manual input instead.
 
 **Sync now** and the scheduler run a headless fetch with that session. The page
 text is redacted and ingested through the same pipeline as email and manual
@@ -177,7 +180,7 @@ Only one browser window is opened per source at a time.
 | **M1 — core** | done | SQLite store + migrations, domain + billing tests, subscriptions / payment methods / vendors services, Svelte shell, dashboard, subscription editor |
 | **M2 — ingestion core** | done | jobs + events, settings + local LLM client, review queue, manual ingestion through the pipeline, review/activity/settings UI |
 | **M3 — email source** | done | sources + secret store, IMAP cursors/artifacts, MIME parsing, email classification, scheduled and manual sync, Sources UI |
-| **M4 — browser source** | done | Playwright framework, interactive sign-in with saved sessions, scheduled browser sync, GitHub billing connector |
+| **M4 — browser source** | done | Playwright framework, default-browser cookie import plus isolated sign-in, saved sessions, scheduled browser sync, GitHub billing connector |
 | **M5** | next | declarative API connectors, OAuth loopback |
 | **M6** | | renewals/notifications, spend history from charges, export/import |
 

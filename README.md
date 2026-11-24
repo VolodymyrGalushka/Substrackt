@@ -129,12 +129,12 @@ cursor.
 **Sources → Add source → Vendor website (browser)** signs in to a vendor's own
 billing page. The first connector is **GitHub**; the page list is extensible in
 `internal/browser`. Choose the connector and, if needed, override the billing URL
-(it must stay on the vendor's host), then **Add source**. Saving opens a separate
-browser window (installed Chrome/Brave when available) where you complete the
-normal password/2FA/SSO flow. Substrackt
-polls until the vendor reports a signed-in page, closes the window and stores the
-Playwright session as a secret under `source:<id>:session`. Closing the window or
-using **Cancel sign-in** leaves the source signed out.
+(it must stay on the vendor's host), then **Add source**. By default, **Sign in**
+opens a new tab in your existing browser, where you complete the normal
+password/2FA/SSO flow; Substrackt imports only that vendor's session cookies and
+stores them as a secret under `source:<id>:session`. The isolated method instead
+opens a separate Playwright window, waits for the vendor's signed-in page and
+closes it. **Cancel sign-in** stops waiting and leaves the source signed out.
 
 **Sync now** and the schedule run the page headlessly with that session. The
 visible text is redacted and sent through the same pipeline as email and manual
@@ -144,18 +144,22 @@ driver and Chromium are downloaded on first use through **Install browser
 runtime** (or automatically on the first sign-in) into the local Playwright
 cache; they are not bundled with the app.
 
-**Settings → Browser sign-in** chooses the browser binary. **Automatic** prefers
-an installed Chrome, Brave, Chromium or Edge, then falls back to bundled
-Chromium. Using installed Chrome is recommended for GitHub’s **Continue with
-Google** flow, which often rejects Playwright’s Chrome-for-Testing build. A
-system browser still needs the Playwright driver, but not the bundled Chromium
-download.
+**Settings → Browser sign-in** chooses how sign-in works. **Use my default
+browser** opens a new tab in the browser you already use and imports only the
+vendor's session cookies after you sign in, so an existing Google account is
+reused. **Open an isolated browser** keeps the old Playwright window. The
+**Browser for isolated sign-in and sync** setting selects the binary used for
+headless sync (**Automatic** prefers installed Chrome, Brave, Chromium or Edge,
+then bundled Chromium). On Windows, browsers using App-Bound Encryption may
+require the isolated method.
 
 ## Dependencies
 
 - `modernc.org/sqlite` — pure-Go SQLite driver (no cgo).
 - `github.com/emersion/go-imap/v2` + `github.com/emersion/go-message` — IMAP and
   MIME parsing for email sources.
+- `github.com/ChristopherDavenport/cookiecracker` — reads the default browser's
+  vendor cookies for default-mode sign-in.
 - `github.com/mxschmitt/playwright-go` — headed interactive sign-in and headless
   billing-page reads for browser sources.
 - `github.com/zalando/go-keyring` — OS keyring access, with the encrypted file

@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -307,6 +308,19 @@ func TestSettingsBrowserRuntime(t *testing.T) {
 	if saved.BrowserRuntime != "chrome" {
 		t.Fatalf("browser runtime = %q, want chrome", saved.BrowserRuntime)
 	}
+	if saved.BrowserSignIn != "default" {
+		t.Fatalf("browser sign-in = %q, want default", saved.BrowserSignIn)
+	}
+	status := a.sources.BrowserRuntime()
+	if status.Selected != "chrome" {
+		t.Fatalf("selected = %q, want chrome", status.Selected)
+	}
+	if status.SignIn != "default" {
+		t.Fatalf("sign-in = %q, want default", status.SignIn)
+	}
+	if len(status.Options) == 0 {
+		t.Fatal("runtime status should list the available browsers")
+	}
 
 	if _, err := a.settings.Update(Settings{
 		BaseCurrency:      "USD",
@@ -315,13 +329,24 @@ func TestSettingsBrowserRuntime(t *testing.T) {
 	}); err == nil {
 		t.Fatal("expected an unknown browser runtime to be rejected")
 	}
-
-	status := a.sources.BrowserRuntime()
-	if status.Selected != "chrome" {
-		t.Fatalf("selected = %q, want chrome", status.Selected)
+	if _, err := a.settings.Update(Settings{
+		BaseCurrency:      "USD",
+		LLMTimeoutSeconds: 60,
+		BrowserSignIn:     "magic",
+	}); err == nil {
+		t.Fatal("expected an unknown sign-in method to be rejected")
 	}
-	if len(status.Options) == 0 {
-		t.Fatal("runtime status should list the available browsers")
+
+	isolated, err := a.settings.Update(Settings{
+		BaseCurrency:      "USD",
+		LLMTimeoutSeconds: 60,
+		BrowserSignIn:     " ISOLATED ",
+	})
+	if err != nil {
+		t.Fatalf("set isolated sign-in: %v", err)
+	}
+	if isolated.BrowserSignIn != "isolated" {
+		t.Fatalf("browser sign-in = %q, want isolated", isolated.BrowserSignIn)
 	}
 
 	reset, err := a.settings.Reset()
@@ -330,6 +355,9 @@ func TestSettingsBrowserRuntime(t *testing.T) {
 	}
 	if reset.BrowserRuntime != "auto" {
 		t.Fatalf("reset browser runtime = %q, want auto", reset.BrowserRuntime)
+	}
+	if reset.BrowserSignIn != "default" {
+		t.Fatalf("reset browser sign-in = %q, want default", reset.BrowserSignIn)
 	}
 	status = a.sources.BrowserRuntime()
 	if status.Selected != "auto" {
@@ -343,5 +371,90 @@ func TestSettingsBrowserRuntime(t *testing.T) {
 	}
 	if !foundBundled {
 		t.Fatalf("options = %+v, want bundled Chromium", status.Options)
+	}
+}
+
+func TestDefaultBrowserSignInImportsCookies(t *testing.T) {
+	a := newTestApp(t)
+	if _, err := a.settings.Update(Settings{
+		BaseCurrency:      "USD",
+		LLMTimeoutSeconds: 60,
+		BrowserSignIn:     "default",
+	}); err != nil {
+		t.Fatalf("enable default sign-in: %v", err)
+	}
+
+	created, err := a.sources.Create(browserInput())
+	if err != nil {
+		t.Fatalf("create browser source: %v", err)
+	}
+
+	var opened string
+	a.browser.openURL = func(url string) error {
+		opened = url
+		return nil
+	}
+	a.browser.cookieSources = func() ([]browser.CookieSource, error) {
+		return []browser.CookieSource{{Name: "Test browser", Kind: "brave"}}, nil
+	}
+	a.browser.waitSession = func(ctx context.Context, sources []browser.CookieSource, connector browser.Connector, pageURL string, timeout time.Duration) (string, error) {
+		return `{"cookies":[{"name":"logged_in","value":"yes","domain":".github.com","path":"/","expires":-1}],"origins":[]}`, nil
+	}
+
+	statuses := make(chan BrowserLoginStatus, 8)
+	a.browser.SetLoginNotifier(func(status BrowserLoginStatus) { statuses <- status })
+	if err := a.sources.BeginSignIn(created.ID); err != nil {
+		t.Fatalf("begin sign-in: %v", err)
+	}
+
+	var saved BrowserLoginStatus
+	deadline := time.After(3 * time.Second)
+	for saved.State == "" {
+		select {
+		case status := <-statuses:
+			if status.State == "failed" {
+				t.Fatalf("sign-in failed: %s", status.Error)
+			}
+			if status.State == "saved" {
+				saved = status
+			}
+		case <-deadline:
+			t.Fatal("timed out waiting for default-browser sign-in")
+		}
+	}
+	if opened != "https://github.com/settings/billing" {
+		t.Fatalf("opened %q, want the GitHub billing page", opened)
+	}
+	updated, err := a.sources.Get(created.ID)
+	if err != nil {
+		t.Fatalf("get source: %v", err)
+	}
+	if !updated.HasSecret {
+		t.Fatal("default-browser sign-in should save a session")
+	}
+	session, err := a.secrets.Get(browserSessionRef(created.ID))
+	if err != nil || !strings.Contains(session, "logged_in") {
+		t.Fatalf("session secret = %q, %v", session, err)
+	}
+}
+
+func TestDefaultBrowserSignInReportsUnavailableSource(t *testing.T) {
+	a := newTestApp(t)
+	if _, err := a.settings.Update(Settings{
+		BaseCurrency:      "USD",
+		LLMTimeoutSeconds: 60,
+		BrowserSignIn:     "default",
+	}); err != nil {
+		t.Fatalf("enable default sign-in: %v", err)
+	}
+	created, err := a.sources.Create(browserInput())
+	if err != nil {
+		t.Fatalf("create browser source: %v", err)
+	}
+	a.browser.cookieSources = func() ([]browser.CookieSource, error) {
+		return nil, errors.New("default browser is not supported")
+	}
+	if err := a.sources.BeginSignIn(created.ID); err == nil {
+		t.Fatal("expected an unsupported default browser to be reported")
 	}
 }

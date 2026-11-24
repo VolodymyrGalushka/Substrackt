@@ -68,6 +68,13 @@ func newTestApp(t *testing.T) *testApp {
 	engine := &fakeBrowserEngine{ready: true, loginState: `{"cookies":[],"origins":[]}`}
 	a.bengine = engine
 	a.browser = NewBrowserManager(st, secretStore, engine)
+	if _, err := a.settings.Update(Settings{
+		BaseCurrency:      "USD",
+		LLMTimeoutSeconds: 60,
+		BrowserSignIn:     "isolated",
+	}); err != nil {
+		t.Fatalf("configure isolated browser sign-in: %v", err)
+	}
 	a.sources = NewSourcesService(st, secretStore, manager, a.browser)
 	a.bhandler = NewBrowserHandler(st, handler, a.browser)
 	manager.Handle(BrowserJobKind, a.bhandler.RunJob)

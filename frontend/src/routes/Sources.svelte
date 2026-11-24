@@ -63,6 +63,7 @@
         selected: "auto",
         resolved: "",
         resolvedName: "",
+        signIn: "default",
         options: [],
       };
     }
@@ -127,11 +128,13 @@
       }
       switch (status.state) {
         case "starting":
-          return "Starting…";
+          return runtime?.signIn === "default" ? "Opening your browser…" : "Starting…";
         case "installing":
           return "Installing browser…";
         case "waiting":
-          return "Waiting for sign-in…";
+          return runtime?.signIn === "default"
+            ? "Waiting for sign-in in your browser…"
+            : "Waiting for sign-in…";
         case "cancelled":
           return "Sign-in cancelled";
         case "failed":
@@ -484,22 +487,29 @@
     <div class="banner" role="status">
       <span>
         {#if runtime.resolved}
-          Browser sign-in needs the Playwright driver
+          {runtime.signIn === "default" ? "Headless sync" : "Browser sign-in"} needs the
+          Playwright driver
           {runtime.error ? `(${runtime.error})` : ""}.
         {:else}
-          {runtime.error || "The selected browser is not available."}
-          Change the browser in Settings.
+          Headless sync browser is unavailable:
+          {runtime.error || "the selected browser is not installed."}
+          Change it in Settings.
         {/if}
       </span>
       {#if runtime.resolved}
         <button class="btn sm" onclick={installBrowser} disabled={installing}>
-          {installing ? "Installing…" : "Install browser runtime"}
+          {installing ? "Installing…" : "Install sync runtime"}
         </button>
       {/if}
     </div>
   {:else if runtime?.resolvedName}
     <p class="field-hint" style="margin: -4px 0 12px;">
-      Browser sign-in uses {runtime.resolvedName}.
+      {#if runtime.signIn === "default"}
+        Sign-in opens a new tab in your default browser; headless sync uses
+        {runtime.resolvedName}.
+      {:else}
+        Browser sign-in uses {runtime.resolvedName}.
+      {/if}
       <a href="#/settings">Change in Settings</a>
     </p>
   {/if}

@@ -36,6 +36,7 @@
       autoApply: true,
       autoApplyThreshold: 0.9,
       browserRuntime: "auto",
+      browserSignIn: "default",
     };
   }
 
@@ -64,6 +65,7 @@
         selected: "auto",
         resolved: "",
         resolvedName: "",
+        signIn: "default",
         options: [
           { id: "auto", name: "Automatic (recommended)", installed: true },
           { id: "bundled", name: "Bundled Chromium", installed: true },
@@ -237,13 +239,29 @@
     <section class="card">
       <h3>Browser sign-in</h3>
       <p class="callout">
-        Browser sources use a Chromium browser. An installed Chrome or Brave is recommended,
-        especially for “Continue with Google” sign-in; bundled Chromium is the fallback.
+        Browser sources sign in through your own browser so an existing Google or vendor session
+        is reused. Only the vendor's session cookies are imported; they are stored as a secret.
       </p>
 
       <div class="form-grid" style="margin-top: 14px;">
         <div class="field span-2">
-          <label for="settings-browser-runtime">Browser for sign-in and sync</label>
+          <label for="settings-browser-signin">Sign-in method</label>
+          <select
+            id="settings-browser-signin"
+            class="select"
+            bind:value={form.browserSignIn}
+          >
+            <option value="default">Use my default browser (recommended)</option>
+            <option value="isolated">Open an isolated browser</option>
+          </select>
+          <span class="field-hint">
+            The default method opens a new tab in your current browser and imports the vendor's
+            session after you sign in. The isolated method opens a separate Playwright window.
+          </span>
+        </div>
+
+        <div class="field span-2">
+          <label for="settings-browser-runtime">Browser for isolated sign-in and sync</label>
           <select
             id="settings-browser-runtime"
             class="select"
@@ -257,7 +275,7 @@
           </select>
           <span class="field-hint">
             Automatic prefers installed Chrome, then Brave or Chromium, and falls back to bundled
-            Chromium. Changing this setting does not sign you out.
+            Chromium. Headless sync uses this browser even when sign-in uses your own browser.
           </span>
           {#if runtimeStatus?.error}
             <span class="field-hint error-text">{runtimeStatus.error}</span>

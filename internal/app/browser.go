@@ -30,6 +30,10 @@ type BrowserManager struct {
 	secrets secrets.Store
 	engine  browser.Engine
 
+	openURL       func(string) error
+	cookieSources func() ([]browser.CookieSource, error)
+	waitSession   func(context.Context, []browser.CookieSource, browser.Connector, string, time.Duration) (string, error)
+
 	mu       sync.Mutex
 	logins   map[string]context.CancelFunc
 	statuses map[string]BrowserLoginStatus
@@ -39,9 +43,14 @@ type BrowserManager struct {
 
 func NewBrowserManager(st *store.Store, secretStore secrets.Store, engine browser.Engine) *BrowserManager {
 	return &BrowserManager{
-		store:    st,
-		secrets:  secretStore,
-		engine:   engine,
+		store:         st,
+		secrets:       secretStore,
+		engine:        engine,
+		openURL:       browser.OpenDefaultBrowser,
+		cookieSources: browser.DefaultCookieSources,
+		waitSession: func(ctx context.Context, sources []browser.CookieSource, connector browser.Connector, pageURL string, timeout time.Duration) (string, error) {
+			return browser.WaitForSession(ctx, sources, connector, pageURL, timeout, nil)
+		},
 		logins:   make(map[string]context.CancelFunc),
 		statuses: make(map[string]BrowserLoginStatus),
 	}
@@ -91,13 +100,22 @@ func (m *BrowserManager) Runtime() BrowserRuntime {
 	if err != nil {
 		return BrowserRuntime{Error: "load settings: " + err.Error()}
 	}
-	return m.runtimeStatus(settings.BrowserRuntime)
+	selected := settings.BrowserRuntime
+	if selected == "" {
+		selected = domain.BrowserRuntimeAuto
+	}
+	signIn := settings.BrowserSignIn
+	if signIn == "" {
+		signIn = domain.BrowserSignInDefault
+	}
+	return m.runtimeStatus(selected, signIn)
 }
 
-func (m *BrowserManager) runtimeStatus(selected string) BrowserRuntime {
+func (m *BrowserManager) runtimeStatus(selected, signIn string) BrowserRuntime {
 	options := browser.AvailableRuntimes()
 	status := BrowserRuntime{
 		Selected: selected,
+		SignIn:   signIn,
 		Options:  browserRuntimeOptions(options),
 	}
 	resolved, err := browser.ResolveRuntime(selected)
@@ -141,8 +159,10 @@ func (m *BrowserManager) Install(ctx context.Context) error {
 	return m.engine.Install(ctx, browser.OptionsFor(resolved), nil)
 }
 
-// BeginLogin starts an interactive sign-in and returns immediately. Progress is
-// reported through the browser:login event.
+// BeginLogin starts a sign-in and returns immediately. The default method
+// opens a new tab in the user's own browser and imports the vendor's session
+// cookies; the isolated method opens a Playwright window. Progress is reported
+// through the browser:login event.
 func (m *BrowserManager) BeginLogin(src domain.Source) error {
 	if src.Kind != domain.SourceBrowser {
 		return fmt.Errorf("source %q is not a browser source", src.Name)
@@ -151,11 +171,44 @@ func (m *BrowserManager) BeginLogin(src domain.Source) error {
 	if err != nil {
 		return err
 	}
-	resolved, err := m.resolvedRuntime(context.Background())
+	settings, err := m.store.GetSettings(context.Background())
 	if err != nil {
-		return err
+		return fmt.Errorf("load browser settings: %w", err)
 	}
-	options := browser.OptionsFor(resolved)
+	signIn := settings.BrowserSignIn
+	if signIn == "" {
+		signIn = domain.BrowserSignInDefault
+	}
+
+	var (
+		sources  []browser.CookieSource
+		resolved browser.Runtime
+		pageURL  string
+	)
+	switch signIn {
+	case domain.BrowserSignInDefault:
+		if connector.SessionCookie == "" {
+			return fmt.Errorf("browser connector %q does not support default-browser sign-in", connector.ID)
+		}
+		sources, err = m.cookieSources()
+		if err != nil {
+			return fmt.Errorf("read your browser session: %w", err)
+		}
+		if len(sources) == 0 {
+			return fmt.Errorf("no browser cookie source is available; switch Sign-in method to Open an isolated browser")
+		}
+		pageURL, err = browser.BillingPage(connector, src.Browser.BillingURL)
+		if err != nil {
+			return err
+		}
+	case domain.BrowserSignInIsolated:
+		resolved, err = browser.ResolveRuntime(settings.BrowserRuntime)
+		if err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("unknown browser sign-in method %q", signIn)
+	}
 
 	m.mu.Lock()
 	if _, running := m.logins[src.ID]; running {
@@ -177,50 +230,71 @@ func (m *BrowserManager) BeginLogin(src domain.Source) error {
 		status := BrowserLoginStatus{SourceID: src.ID, State: "starting"}
 		m.emit(status)
 
-		if ready, _ := m.engine.Ready(options); !ready {
-			status.State = "installing"
-			m.emit(status)
-			if err := m.engine.Install(ctx, options, nil); err != nil {
+		var (
+			state    string
+			stateErr error
+		)
+		if signIn == domain.BrowserSignInDefault {
+			if err := m.openURL(pageURL); err != nil {
 				m.failLogin(status, err)
 				return
 			}
-			if ctx.Err() != nil {
-				m.cancelLogin(status)
-				return
+			status.State = "waiting"
+			m.emit(status)
+			state, stateErr = m.waitSession(ctx, sources, connector, pageURL, 10*time.Minute)
+		} else {
+			options := browser.OptionsFor(resolved)
+			if ready, _ := m.engine.Ready(options); !ready {
+				status.State = "installing"
+				m.emit(status)
+				if err := m.engine.Install(ctx, options, nil); err != nil {
+					m.failLogin(status, err)
+					return
+				}
+				if ctx.Err() != nil {
+					m.cancelLogin(status)
+					return
+				}
 			}
+			status.State = "waiting"
+			m.emit(status)
+			state, stateErr = m.engine.Login(ctx, connector, options, 10*time.Minute)
 		}
 
-		status.State = "waiting"
-		m.emit(status)
-
-		state, err := m.engine.Login(ctx, connector, options, 10*time.Minute)
-		if err != nil {
-			if ctx.Err() != nil || errors.Is(err, context.Canceled) {
+		if stateErr != nil {
+			if ctx.Err() != nil || errors.Is(stateErr, context.Canceled) {
 				m.cancelLogin(status)
 				return
 			}
+			m.failLogin(status, stateErr)
+			return
+		}
+		if err := m.storeSession(&src, state); err != nil {
 			m.failLogin(status, err)
 			return
 		}
-
-		ref := browserSessionRef(src.ID)
-		if err := m.secrets.Set(ref, state); err != nil {
-			m.failLogin(status, fmt.Errorf("save browser session: %w", err))
-			return
-		}
-		src.SecretRef = ref
-		src.LastError = ""
-		writeCtx, writeCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer writeCancel()
-		if err := m.store.UpdateSource(writeCtx, &src); err != nil {
-			_ = m.secrets.Delete(ref)
-			m.failLogin(status, fmt.Errorf("save sign-in state: %w", err))
-			return
-		}
-		m.emitSource(src)
 		status.State = "saved"
 		m.emit(status)
 	}()
+	return nil
+}
+
+// storeSession saves a Playwright storage state as the source secret and marks
+// the source as signed in.
+func (m *BrowserManager) storeSession(src *domain.Source, state string) error {
+	ref := browserSessionRef(src.ID)
+	if err := m.secrets.Set(ref, state); err != nil {
+		return fmt.Errorf("save browser session: %w", err)
+	}
+	src.SecretRef = ref
+	src.LastError = ""
+	writeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := m.store.UpdateSource(writeCtx, src); err != nil {
+		_ = m.secrets.Delete(ref)
+		return fmt.Errorf("save sign-in state: %w", err)
+	}
+	m.emitSource(*src)
 	return nil
 }
 

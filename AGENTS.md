@@ -162,6 +162,17 @@ docs/plan.md            architecture and milestones
   passes it to both headed sign-in and headless sync. Prefer an installed Chrome
   for Google SSO, which rejects Playwright's Chrome-for-Testing build; never add
   stealth or anti-bot flags to work around a vendor block.
+- `Settings.BrowserSignIn` selects the sign-in method. `default` opens a new tab
+  in the user's own browser (`xdg-open`, `open` or `rundll32`) and polls the
+  cookie store with `github.com/ChristopherDavenport/cookiecracker` until
+  `Connector.SessionCookie` appears. Only cookies that apply to the vendor page
+  are copied into the Playwright storage state; values are never logged. On
+  Linux the source comes from `xdg-settings` (including Flatpak profile roots);
+  other platforms try the supported browser profiles. Schema-24 cookies need the
+  `SHA-256(host_key)` prefix stripped, which `stripHostHash` does.
+  `isolated` keeps the Playwright window flow. If cookie import is unavailable
+  (for example Windows App-Bound Encryption), report it and let the user choose
+  `isolated` rather than silently opening an isolated browser.
 - IMAP config has `Security` (`tls` implicit, `starttls`, `none` for
   loopback/private hosts only) and `Auth` (`auto`, `login`, `plain`, `xoauth2`).
   `auto` prefers LOGIN, honours `LOGINDISABLED` and only falls back to SASL when
@@ -218,6 +229,11 @@ docs/plan.md            architecture and milestones
   client used by `internal/mail`.
 - `github.com/zalando/go-keyring` v0.2.8 — OS keyring lookup for source
   passwords, with the encrypted file backend in `internal/secrets` as fallback.
+- `github.com/ChristopherDavenport/cookiecracker` v0.0.1 — reads and decrypts
+  cookies from the user's default browser for default-mode sign-in. Linux v11
+  cookies use the Secret Service; Flatpak profile roots are passed explicitly.
+  It does not yet strip Chromium schema-24 host hashes, so `session.go` does.
+  Windows App-Bound Encryption (`v20`) is unsupported; fall back to isolated.
 - `github.com/mxschmitt/playwright-go` v0.6401.0 — Playwright 1.64.1 driver used
   by `internal/browser` for headed sign-in and headless billing-page fetches.
   The driver and Chromium live in the local Playwright cache and are installed

@@ -23,6 +23,11 @@ type Connector struct {
 	// ExtractJS returns the billing text to ingest. It should be stable enough
 	// that two syncs with no account change produce the same content hash.
 	ExtractJS string
+	// SessionCookie is the cookie that only exists once the user is signed in.
+	// Default-browser sign-in polls for it before importing the session.
+	SessionCookie string
+	// SessionValue, when set, is the required value of SessionCookie.
+	SessionValue string
 }
 
 var connectors = map[string]Connector{
@@ -44,6 +49,8 @@ var connectors = map[string]Connector{
 			const main = document.querySelector('main') || document.body;
 			return (main ? main.innerText : '').trim();
 		})()`,
+		SessionCookie: "logged_in",
+		SessionValue:  "yes",
 	},
 }
 

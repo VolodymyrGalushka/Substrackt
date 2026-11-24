@@ -246,6 +246,7 @@ type Settings struct {
 	AutoApply          bool    `json:"autoApply"`
 	AutoApplyThreshold float64 `json:"autoApplyThreshold"`
 	BrowserRuntime     string  `json:"browserRuntime"`
+	BrowserSignIn      string  `json:"browserSignIn"`
 }
 
 // LLMTestResult is the outcome of probing the local endpoint.
@@ -329,6 +330,7 @@ type BrowserRuntime struct {
 	Selected     string                 `json:"selected"`
 	Resolved     string                 `json:"resolved"`
 	ResolvedName string                 `json:"resolvedName"`
+	SignIn       string                 `json:"signIn"`
 	Options      []BrowserRuntimeOption `json:"options"`
 }
 

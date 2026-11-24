@@ -22,6 +22,15 @@ const (
 	BrowserRuntimeEdge     = "edge"
 )
 
+// Browser sign-in methods.
+const (
+	// BrowserSignInDefault opens a new tab in the user's default browser and
+	// imports the vendor's session cookies.
+	BrowserSignInDefault = "default"
+	// BrowserSignInIsolated opens an isolated Playwright browser window.
+	BrowserSignInIsolated = "isolated"
+)
+
 // Settings are the application-wide preferences stored in SQLite.
 type Settings struct {
 	// Timezone is an IANA name used to decide what "today" is. Empty means the
@@ -41,6 +50,8 @@ type Settings struct {
 	AutoApplyThreshold float64
 	// BrowserRuntime selects the browser binary used by browser sources.
 	BrowserRuntime string
+	// BrowserSignIn selects how browser sign-in is performed.
+	BrowserSignIn string
 }
 
 // DefaultSettings returns the settings used before the user saves any.
@@ -51,6 +62,7 @@ func DefaultSettings() Settings {
 		AutoApply:          true,
 		AutoApplyThreshold: DefaultAutoApplyThreshold,
 		BrowserRuntime:     BrowserRuntimeAuto,
+		BrowserSignIn:      BrowserSignInDefault,
 	}
 }
 
@@ -63,6 +75,10 @@ func (s *Settings) Normalize() {
 	s.BrowserRuntime = strings.ToLower(strings.TrimSpace(s.BrowserRuntime))
 	if s.BrowserRuntime == "" {
 		s.BrowserRuntime = BrowserRuntimeAuto
+	}
+	s.BrowserSignIn = strings.ToLower(strings.TrimSpace(s.BrowserSignIn))
+	if s.BrowserSignIn == "" {
+		s.BrowserSignIn = BrowserSignInDefault
 	}
 }
 
@@ -101,6 +117,15 @@ func (s Settings) Validate() error {
 		BrowserRuntimeChromium, BrowserRuntimeBrave, BrowserRuntimeEdge:
 	default:
 		return fmt.Errorf("unknown browser runtime %q", s.BrowserRuntime)
+	}
+	browserSignIn := s.BrowserSignIn
+	if browserSignIn == "" {
+		browserSignIn = BrowserSignInDefault
+	}
+	switch browserSignIn {
+	case BrowserSignInDefault, BrowserSignInIsolated:
+	default:
+		return fmt.Errorf("unknown browser sign-in method %q", s.BrowserSignIn)
 	}
 	return nil
 }
