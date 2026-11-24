@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"substrackt/internal/api"
 	"substrackt/internal/browser"
 	"substrackt/internal/domain"
 	"substrackt/internal/jobs"
@@ -21,11 +22,12 @@ const maxSecretBytes = 4096
 // credential handling: passwords are written to the secret store and never
 // returned by any method.
 type SourcesService struct {
-	store   *store.Store
-	secrets secrets.Store
-	manager *jobs.Manager
-	browser *BrowserManager
-	dial    emailDialer
+	store    *store.Store
+	secrets  secrets.Store
+	manager  *jobs.Manager
+	browser  *BrowserManager
+	dial     emailDialer
+	apiFetch apiFetcher
 }
 
 // NewSourcesService wires the service to the store, secret store and queue.
@@ -36,6 +38,9 @@ func NewSourcesService(st *store.Store, secretStore secrets.Store, manager *jobs
 		manager: manager,
 		browser: BrowserManager,
 		dial:    dialIMAP,
+		apiFetch: func(ctx context.Context, connector api.Connector, token string, timeout time.Duration, max int) ([]api.Subscription, error) {
+			return api.NewClient(timeout).Subscriptions(ctx, connector, token, max)
+		},
 	}
 }
 
@@ -70,10 +75,10 @@ func (s *SourcesService) RevealPassword(id string) (string, error) {
 		return "", err
 	}
 	if src.SecretRef == "" {
-		return "", fmt.Errorf("no password is saved for this source")
+		return "", fmt.Errorf("no credential is saved for this source")
 	}
-	if src.Kind != domain.SourceEmail {
-		return "", fmt.Errorf("this source does not use a password")
+	if src.Kind != domain.SourceEmail && src.Kind != domain.SourceAPI {
+		return "", fmt.Errorf("this source does not use a credential")
 	}
 	value, err := s.secrets.Get(src.SecretRef)
 	if err != nil {
@@ -82,38 +87,33 @@ func (s *SourcesService) RevealPassword(id string) (string, error) {
 	return value, nil
 }
 
-// Create saves a source and its credential. Email sources require a password;
-// browser sources start signed out and gain a session through BeginSignIn.
+// Create saves a source and its credential. Email and API-key sources require
+// a credential; browser and OAuth sources start signed out.
 func (s *SourcesService) Create(in SourceInput) (Source, error) {
 	ctx := context.Background()
 	src, err := sourceFromInput(domain.Source{}, in)
 	if err != nil {
 		return Source{}, err
 	}
-	if src.Kind == domain.SourceEmail {
-		if in.Password == "" {
-			return Source{}, fmt.Errorf("password is required")
-		}
-		if len(in.Password) > maxSecretBytes {
-			return Source{}, fmt.Errorf("password is too long (limit %d bytes)", maxSecretBytes)
-		}
-		src.ID = domain.NewID()
-		src.SecretRef = sourceSecretRef(src.ID)
-		if err := s.secrets.Set(src.SecretRef, in.Password); err != nil {
-			return Source{}, fmt.Errorf("store password: %w", err)
-		}
-		if err := s.store.CreateSource(ctx, &src); err != nil {
-			// Do not leave an orphaned credential behind a failed insert.
-			_ = s.secrets.Delete(src.SecretRef)
-			return Source{}, err
-		}
-		dto := sourceDTO(src)
-		emit("source:changed", dto)
-		return dto, nil
+	if sourceNeedsCredential(src) && in.Password == "" {
+		return Source{}, fmt.Errorf("%s is required", sourceCredentialLabel(src))
+	}
+	if len(in.Password) > maxSecretBytes {
+		return Source{}, fmt.Errorf("credential is too long (limit %d bytes)", maxSecretBytes)
 	}
 
 	src.ID = domain.NewID()
+	if sourceNeedsCredential(src) {
+		src.SecretRef = sourceSecretRef(src.ID)
+		if err := s.secrets.Set(src.SecretRef, in.Password); err != nil {
+			return Source{}, fmt.Errorf("store credential: %w", err)
+		}
+	}
 	if err := s.store.CreateSource(ctx, &src); err != nil {
+		// Do not leave an orphaned credential behind a failed insert.
+		if src.SecretRef != "" {
+			_ = s.secrets.Delete(src.SecretRef)
+		}
 		return Source{}, err
 	}
 	dto := sourceDTO(src)
@@ -151,6 +151,57 @@ func (s *SourcesService) Update(id string, in SourceInput) (Source, error) {
 		}
 		if err := s.store.UpdateSource(ctx, &updated); err != nil {
 			return Source{}, err
+		}
+		dto := sourceDTO(updated)
+		emit("source:changed", dto)
+		return dto, nil
+	}
+
+	if updated.Kind == domain.SourceAPI {
+		// Tokens are scoped to a connector and auth mode. Do not delete the old
+		// credential until the source update has succeeded, so a failed save
+		// cannot leave the source locked out.
+		scopedChange := current.Kind != domain.SourceAPI ||
+			current.API.Connector != updated.API.Connector ||
+			current.API.Auth != updated.API.Auth
+		newSecret := in.Password != ""
+		if scopedChange && !newSecret && updated.API.Auth == domain.APIAuthKey && updated.Enabled {
+			return Source{}, fmt.Errorf("API key is required after changing the connector")
+		}
+
+		oldRef := current.SecretRef
+		oldValue, oldErr := "", error(nil)
+		if oldRef != "" {
+			oldValue, oldErr = s.secrets.Get(oldRef)
+		}
+		if newSecret {
+			if updated.SecretRef == "" {
+				updated.SecretRef = sourceSecretRef(updated.ID)
+			}
+			if err := s.secrets.Set(updated.SecretRef, in.Password); err != nil {
+				return Source{}, fmt.Errorf("store credential: %w", err)
+			}
+		} else if scopedChange {
+			updated.SecretRef = ""
+		} else {
+			updated.SecretRef = current.SecretRef
+		}
+		if updated.SecretRef == "" && updated.API.Auth == domain.APIAuthKey && updated.Enabled {
+			return Source{}, fmt.Errorf("API key is required for an enabled source")
+		}
+
+		if err := s.store.UpdateSource(ctx, &updated); err != nil {
+			if newSecret {
+				if oldErr == nil && oldRef != "" {
+					_ = s.secrets.Set(oldRef, oldValue)
+				} else {
+					_ = s.secrets.Delete(updated.SecretRef)
+				}
+			}
+			return Source{}, err
+		}
+		if scopedChange && !newSecret && oldRef != "" {
+			_ = s.secrets.Delete(oldRef)
 		}
 		dto := sourceDTO(updated)
 		emit("source:changed", dto)
@@ -236,6 +287,15 @@ func (s *SourcesService) SyncNow(id string) (Job, error) {
 			return Job{}, err
 		}
 		return jobDTO(job), nil
+	case domain.SourceAPI:
+		if src.SecretRef == "" {
+			return Job{}, fmt.Errorf("source %q has no API credential; edit it to add one", src.Name)
+		}
+		job, err := s.manager.Enqueue(context.Background(), APIJobKind, apiPayload{SourceID: id})
+		if err != nil {
+			return Job{}, err
+		}
+		return jobDTO(job), nil
 	default:
 		return Job{}, fmt.Errorf("source %q has an unsupported kind", src.Name)
 	}
@@ -252,6 +312,9 @@ func (s *SourcesService) Test(id string, in SourceInput) (SourceTestResult, erro
 	}
 	if kind == domain.SourceBrowser {
 		return s.testBrowser(id, in)
+	}
+	if kind == domain.SourceAPI {
+		return s.testAPI(id, in)
 	}
 
 	cfg, password, err := s.testConfig(id, in)
@@ -324,6 +387,9 @@ func sourceFromInput(base domain.Source, in SourceInput) (domain.Source, error) 
 	}
 	if kind == domain.SourceBrowser {
 		return browserSourceFromInput(base, in)
+	}
+	if kind == domain.SourceAPI {
+		return apiSourceFromInput(base, in)
 	}
 
 	src := base

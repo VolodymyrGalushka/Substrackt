@@ -17,6 +17,14 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 import * as $models from "./models.js";
 
 /**
+ * APIConnectors lists the declarative vendor API connectors available to API
+ * sources.
+ */
+export function APIConnectors(): $CancellablePromise<$models.APIConnector[] | null> {
+    return $Call.ByID(2688832614);
+}
+
+/**
  * BeginSignIn opens a browser window for an interactive login. Progress arrives
  * through the browser:login event; use CancelSignIn to abort.
  */
@@ -46,8 +54,8 @@ export function CancelSignIn(id: string): $CancellablePromise<void> {
 }
 
 /**
- * Create saves a source and its credential. Email sources require a password;
- * browser sources start signed out and gain a session through BeginSignIn.
+ * Create saves a source and its credential. Email and API-key sources require
+ * a credential; browser and OAuth sources start signed out.
  */
 export function Create($in: $models.SourceInput): $CancellablePromise<$models.Source> {
     return $Call.ByID(1031620238, $in);

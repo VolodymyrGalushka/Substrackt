@@ -142,3 +142,38 @@ func TestBrowserSourceValidation(t *testing.T) {
 		t.Fatal("expected a short timeout to be rejected")
 	}
 }
+
+func TestAPISourceValidation(t *testing.T) {
+	src := Source{
+		Kind:            SourceAPI,
+		Name:            "Stripe billing",
+		ScheduleMinutes: 60,
+		API: APISourceConfig{
+			Connector:      "stripe",
+			Auth:           APIAuthKey,
+			TimeoutSeconds: 30,
+			MaxItems:       100,
+		},
+	}
+	if err := src.Validate(); err != nil {
+		t.Fatalf("valid API source: %v", err)
+	}
+
+	missingConnector := src
+	missingConnector.API.Connector = ""
+	if err := missingConnector.Validate(); err == nil {
+		t.Fatal("expected a missing API connector to be rejected")
+	}
+
+	badAuth := src
+	badAuth.API.Auth = "magic"
+	if err := badAuth.Validate(); err == nil {
+		t.Fatal("expected an invalid API auth mode to be rejected")
+	}
+
+	badTimeout := src
+	badTimeout.API.TimeoutSeconds = 2
+	if err := badTimeout.Validate(); err == nil {
+		t.Fatal("expected a short API timeout to be rejected")
+	}
+}

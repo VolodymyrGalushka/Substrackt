@@ -4,11 +4,12 @@ A desktop app for tracking subscriptions: what you pay, how often, with which
 payment method, and when it renews next. Built with
 [Wails v3](https://v3.wails.io/) (Go backend) and Svelte 5 + TypeScript.
 
-Data lives in a local **SQLite** database — nothing leaves the machine. Milestones
-3 and 4 add email and browser sources: connect an IMAP mailbox, or sign in to a
-vendor billing page, and the evidence flows through the same review queue as
-manual imports, optionally parsed by a **local** OpenAI-compatible model. The
-longer-term plan (API connectors, renewals) is in [`docs/plan.md`](docs/plan.md).
+Data lives in a local **SQLite** database — nothing leaves the machine. Email,
+browser and API sources feed the same review queue as manual imports: connect an
+IMAP mailbox, sign in to a vendor billing page, or read subscriptions directly
+from Stripe or Paddle with a read-only key. Extraction can use a **local**
+OpenAI-compatible model. The longer-term plan (OAuth-backed connectors,
+renewals) is in [`docs/plan.md`](docs/plan.md).
 
 The interface has light and dark palettes plus **Use system theme**, which
 follows the OS setting live; the choice is remembered locally on the device.
@@ -152,6 +153,21 @@ reused. **Open an isolated browser** keeps the old Playwright window. The
 headless sync (**Automatic** prefers installed Chrome, Brave, Chromium or Edge,
 then bundled Chromium). On Windows, browsers using App-Bound Encryption may
 require the isolated method.
+
+## API sources
+
+**Sources → Add source → Vendor API** reads structured subscriptions from a
+vendor's API. The first connectors are **Stripe** and **Paddle**; both accept a
+read-only API key, stored in the OS keyring or the encrypted fallback and never
+returned by a DTO. The API host must be https. **Sync now** and the schedule
+enqueue an `api.sync` job that reads the account's subscriptions, maps them to
+the same subscription model used by email and browser sources, and lets the
+shared pipeline match or propose them. Price or status changes go through the
+review queue.
+
+`internal/api` also contains the OAuth loopback helper (authorization-code with
+PKCE, state validation and a 127.0.0.1 callback). No built-in connector uses it
+yet; a vendor connector can opt in once it has a registered OAuth client.
 
 ## Dependencies
 

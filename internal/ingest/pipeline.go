@@ -141,48 +141,58 @@ func (p *Pipeline) Run(ctx context.Context, item RawItem, progress func(int, str
 	}
 	occurred := item.OccurredDate()
 
-	var (
-		ex      Extract
-		llmErr  error
-		llmUsed bool
-	)
-	if p.Config.Client != nil {
-		model := p.Config.Model
-		if model == "" {
-			model = p.Config.Client.Model()
+	var ex Extract
+	if item.Proposal != nil {
+		report(progress, 30, "Using structured "+channel+" data")
+		ex = Extract{
+			Proposal:  *item.Proposal,
+			Model:     "structured:" + channel,
+			Rationale: "Structured data from " + channel,
+			Evidence:  content,
 		}
-		report(progress, 30, "Extracting with "+model)
-		var isSubscription bool
-		ex, isSubscription, llmErr = p.extractWithLLM(ctx, content, occurred, today)
-		llmUsed = true
-		if llmErr == nil && !isSubscription {
-			result.Action = ActionIgnored
-			result.Message = "Not recognised as a subscription"
-			report(progress, 100, result.Message)
-			return result, nil
-		}
-	}
-
-	if !llmUsed || llmErr != nil {
-		if llmErr != nil {
-			report(progress, 40, "LLM unavailable; using local rules")
-		} else {
-			report(progress, 40, "Extracting with local rules")
-		}
-		heuristic, ok := HeuristicExtract(content, vendorHint, occurred, today, p.Config.BaseCurrency)
-		if !ok {
-			if llmErr != nil {
-				return Result{}, fmt.Errorf("LLM extraction failed: %w", llmErr)
+	} else {
+		var (
+			llmErr  error
+			llmUsed bool
+		)
+		if p.Config.Client != nil {
+			model := p.Config.Model
+			if model == "" {
+				model = p.Config.Client.Model()
 			}
-			result.Action = ActionIgnored
-			result.Message = "No subscription details found"
-			report(progress, 100, result.Message)
-			return result, nil
+			report(progress, 30, "Extracting with "+model)
+			var isSubscription bool
+			ex, isSubscription, llmErr = p.extractWithLLM(ctx, content, occurred, today)
+			llmUsed = true
+			if llmErr == nil && !isSubscription {
+				result.Action = ActionIgnored
+				result.Message = "Not recognised as a subscription"
+				report(progress, 100, result.Message)
+				return result, nil
+			}
 		}
-		ex = heuristic
-		if llmErr != nil {
-			ex.Rationale = strings.TrimSpace(ex.Rationale +
-				fmt.Sprintf(" (LLM unavailable: %s)", llmErr.Error()))
+
+		if !llmUsed || llmErr != nil {
+			if llmErr != nil {
+				report(progress, 40, "LLM unavailable; using local rules")
+			} else {
+				report(progress, 40, "Extracting with local rules")
+			}
+			heuristic, ok := HeuristicExtract(content, vendorHint, occurred, today, p.Config.BaseCurrency)
+			if !ok {
+				if llmErr != nil {
+					return Result{}, fmt.Errorf("LLM extraction failed: %w", llmErr)
+				}
+				result.Action = ActionIgnored
+				result.Message = "No subscription details found"
+				report(progress, 100, result.Message)
+				return result, nil
+			}
+			ex = heuristic
+			if llmErr != nil {
+				ex.Rationale = strings.TrimSpace(ex.Rationale +
+					fmt.Sprintf(" (LLM unavailable: %s)", llmErr.Error()))
+			}
 		}
 	}
 

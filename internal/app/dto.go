@@ -282,10 +282,25 @@ type SourceConfig struct {
 	TLSHost     string `json:"tlsHost"`
 	InitialDays int    `json:"initialDays"`
 	MaxMessages int    `json:"maxMessages"`
+	// Browser and API connector.
+	Connector string `json:"connector"`
 	// Browser fields.
-	Connector      string `json:"connector"`
 	BillingURL     string `json:"billingUrl"`
 	TimeoutSeconds int    `json:"timeoutSeconds"`
+	// API fields.
+	APIAuth           string `json:"apiAuth"`
+	APIAccount        string `json:"apiAccount"`
+	APITimeoutSeconds int    `json:"apiTimeoutSeconds"`
+	APIMaxItems       int    `json:"apiMaxItems"`
+}
+
+// APIConnector describes one vendor API connector preset.
+type APIConnector struct {
+	ID      string   `json:"id"`
+	Name    string   `json:"name"`
+	Vendor  string   `json:"vendor"`
+	DocsURL string   `json:"docsUrl"`
+	Auths   []string `json:"auths"`
 }
 
 // Source is a configured ingestion channel as seen by the frontend.

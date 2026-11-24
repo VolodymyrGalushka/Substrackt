@@ -71,10 +71,15 @@ func main() {
 		emitEvent("source:status", src)
 	})
 	browserHandler := appsvc.NewBrowserHandler(st, ingestion, browserManager)
+	apiHandler := appsvc.NewAPIHandler(st, secretStore, ingestion)
+	apiHandler.SetNotifier(func(src appsvc.Source) {
+		emitEvent("source:status", src)
+	})
 
 	jobManager.Handle(appsvc.ManualJobKind, ingestion.RunJob)
 	jobManager.Handle(appsvc.EmailJobKind, emailHandler.RunJob)
 	jobManager.Handle(appsvc.BrowserJobKind, browserHandler.RunJob)
+	jobManager.Handle(appsvc.APIJobKind, apiHandler.RunJob)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer func() {

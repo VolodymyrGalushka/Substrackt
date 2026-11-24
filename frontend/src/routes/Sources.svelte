@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import { Events } from "@wailsio/runtime";
   import type {
+    APIConnector,
     BrowserConnector,
     BrowserLoginStatus,
     BrowserRuntime,
@@ -36,12 +37,14 @@
   let provider = $state("custom");
   let runtime = $state<BrowserRuntime | null>(null);
   let connectors = $state<BrowserConnector[]>([]);
+  let apiConnectors = $state<APIConnector[]>([]);
   let installing = $state(false);
   let login = $state<Record<string, BrowserLoginStatus>>({});
 
   onMount(() => {
     void refreshRuntime();
     void refreshConnectors();
+    void refreshAPIConnectors();
     const off = Events.On("browser:login", (event) => {
       const status = event.data as BrowserLoginStatus;
       if (!status?.sourceId) return;
@@ -77,6 +80,14 @@
       }
     } catch {
       connectors = [];
+    }
+  }
+
+  async function refreshAPIConnectors() {
+    try {
+      apiConnectors = (await SourcesService.APIConnectors()) ?? [];
+    } catch {
+      apiConnectors = [];
     }
   }
 
@@ -153,12 +164,23 @@
     return connectors.find((item) => item.id === id);
   }
 
+  function apiConnector(id: string): APIConnector | undefined {
+    return apiConnectors.find((item) => item.id === id);
+  }
+
   function onKindChange(event: Event) {
     const target = event.currentTarget as HTMLSelectElement;
     form.kind = target.value;
     if (form.kind === "browser") {
-      form.config.connector = form.config.connector || connectors[0]?.id || "";
+      form.config.connector = connectors[0]?.id || "";
       form.config.timeoutSeconds = form.config.timeoutSeconds || 30;
+    } else if (form.kind === "api") {
+      form.config.connector = apiConnectors[0]?.id || "";
+      form.config.apiAuth = "api_key";
+      form.config.apiTimeoutSeconds = form.config.apiTimeoutSeconds || 30;
+      form.config.apiMaxItems = form.config.apiMaxItems || 100;
+    } else {
+      form.config.connector = "";
     }
   }
 
@@ -229,6 +251,10 @@
         connector: "",
         billingUrl: "",
         timeoutSeconds: 30,
+        apiAuth: "api_key",
+        apiAccount: "",
+        apiTimeoutSeconds: 30,
+        apiMaxItems: 100,
       },
       password: "",
     };
@@ -304,6 +330,10 @@
         connector: form.config.connector,
         billingUrl: form.config.billingUrl,
         timeoutSeconds: Number(form.config.timeoutSeconds) || 0,
+        apiAuth: form.config.apiAuth,
+        apiAccount: form.config.apiAccount,
+        apiTimeoutSeconds: Number(form.config.apiTimeoutSeconds) || 0,
+        apiMaxItems: Number(form.config.apiMaxItems) || 0,
       },
       password: form.password,
     };
@@ -425,7 +455,9 @@
     const detail =
       src.kind === "browser"
         ? "Its saved browser session is removed too."
-        : "Its stored password and sync position are removed too.";
+        : src.kind === "api"
+          ? "Its stored API key is removed too."
+          : "Its stored password and sync position are removed too.";
     if (!confirm(`Delete "${src.name}"? ${detail}`)) {
       return;
     }
@@ -466,8 +498,8 @@
     <div>
       <h1>Sources</h1>
       <p>
-        Ingestion channels that feed the review queue. Email passwords and browser sessions go to
-        the OS keyring or an encrypted file, never to the database.
+        Ingestion channels that feed the review queue. Email passwords, API keys and browser
+        sessions go to the OS keyring or an encrypted file, never to the database.
       </p>
     </div>
     <div class="row">
@@ -518,8 +550,8 @@
     <div class="card empty">
       <strong>No sources yet</strong>
       <span>
-        Connect a mailbox to pull subscription receipts, or sign in to a vendor billing page.
-        Detected subscriptions wait in the review queue unless a local model is confident.
+        Connect a mailbox, sign in to a vendor billing page, or add a vendor API key. Detected
+        subscriptions wait in the review queue unless a local model is confident.
       </span>
       <button class="btn primary" onclick={openNew}>+ Add source</button>
     </div>
@@ -539,6 +571,11 @@
                     browserConnector(src.config.connector)?.billingUrl ||
                     "Default billing page"}
                 </div>
+              {:else if src.kind === "api"}
+                <div class="cell-sub mono">
+                  {apiConnector(src.config.connector)?.name ?? src.config.connector}
+                </div>
+                <div class="cell-sub mono">{src.config.apiAccount || "API key"}</div>
               {:else}
                 <div class="cell-sub mono">{src.config.username}</div>
                 <div class="cell-sub mono">{src.config.address} · {src.config.mailbox}</div>
@@ -555,6 +592,10 @@
           {#if src.kind === "browser"}
             <p class="cell-sub" class:error-text={!src.hasSecret && !isSigningIn(src)}>
               {loginLabel(src)}
+            </p>
+          {:else if src.kind === "api"}
+            <p class="cell-sub" class:error-text={!src.hasSecret}>
+              {src.hasSecret ? "API key saved" : "No API key. Edit the source to add one."}
             </p>
           {:else if !src.hasSecret}
             <p class="cell-sub error-text">No password saved. Edit the source to add one.</p>
@@ -586,7 +627,9 @@
             <button
               class="btn ghost sm"
               onclick={() => syncNow(src)}
-              disabled={busyId === src.id || !src.enabled || (src.kind === "browser" && !src.hasSecret)}
+              disabled={busyId === src.id ||
+                !src.enabled ||
+                ((src.kind === "browser" || src.kind === "api") && !src.hasSecret)}
             >
               Sync now
             </button>
@@ -618,10 +661,12 @@
         >
           <option value="email">Email (IMAP)</option>
           <option value="browser">Vendor website (browser)</option>
+          <option value="api">Vendor API</option>
         </select>
         {#if editing == null}
           <span class="field-hint">
-            Email pulls receipts from a mailbox. Browser signs in to a vendor billing page.
+            Email pulls receipts from a mailbox. Browser signs in to a billing page. API reads
+            subscriptions with a vendor API key.
           </span>
         {/if}
       </div>
@@ -632,7 +677,11 @@
           id="source-name"
           class="input"
           bind:value={form.name}
-          placeholder={form.kind === "browser" ? "GitHub billing" : "Personal mail"}
+          placeholder={form.kind === "browser"
+            ? "GitHub billing"
+            : form.kind === "api"
+              ? "Stripe billing"
+              : "Personal mail"}
           required
         />
       </div>
@@ -681,6 +730,117 @@
           <label for="source-browser-schedule">Sync schedule</label>
           <select id="source-browser-schedule" class="select" bind:value={form.scheduleMinutes}>
             <option value={5}>every 5 minutes</option>
+            <option value={15}>every 15 minutes</option>
+            <option value={30}>every 30 minutes</option>
+            <option value={60}>every hour</option>
+            <option value={360}>every 6 hours</option>
+            <option value={1440}>every day</option>
+          </select>
+        </div>
+
+        <label class="row" style="gap: 8px;">
+          <input type="checkbox" bind:checked={form.enabled} />
+          <span>Enabled</span>
+        </label>
+      {:else if form.kind === "api"}
+        <div class="field span-2">
+          <label for="source-api-connector">Vendor API</label>
+          <select id="source-api-connector" class="select" bind:value={form.config.connector}>
+            {#each apiConnectors as connector (connector.id)}
+              <option value={connector.id}>{connector.name}</option>
+            {/each}
+          </select>
+          <span class="field-hint">
+            Reads subscriptions directly from the vendor API. Use a read-only key where the vendor
+            offers one; it is stored in the OS keyring or the encrypted fallback.
+          </span>
+        </div>
+
+        <div class="field">
+          <label for="source-api-account">Account label (optional)</label>
+          <input
+            id="source-api-account"
+            class="input"
+            bind:value={form.config.apiAccount}
+            placeholder="Acme"
+          />
+        </div>
+
+        <div class="field">
+          <label for="source-api-auth">Authentication</label>
+          <select id="source-api-auth" class="select" bind:value={form.config.apiAuth}>
+            <option value="api_key">API key / bearer token</option>
+          </select>
+        </div>
+
+        <div class="field span-2">
+          <label for="source-api-key">API key</label>
+          <div class="row" style="display: flex; gap: 8px; flex-wrap: nowrap; align-items: center;">
+            <input
+              id="source-api-key"
+              class="input"
+              type={showPassword ? "text" : "password"}
+              bind:value={form.password}
+              autocomplete="off"
+              placeholder={editing ? "Leave blank to keep the saved key" : ""}
+              required={!editing}
+              style="flex: 1; min-width: 0;"
+            />
+            <button
+              type="button"
+              class="btn ghost sm"
+              onclick={() => (showPassword = !showPassword)}
+              aria-label={showPassword ? "Hide API key" : "Show API key"}
+              style="white-space: nowrap;"
+            >
+              {showPassword ? "Hide" : "Show"}
+            </button>
+            {#if editing}
+              <button
+                type="button"
+                class="btn ghost sm"
+                onclick={revealSaved}
+                disabled={revealing || !editing.hasSecret}
+                title="Load the saved API key into this field"
+                style="white-space: nowrap;"
+              >
+                {revealing ? "Loading…" : "Reveal saved"}
+              </button>
+            {/if}
+          </div>
+          <span class="field-hint">
+            The key is sent only to the selected connector's API host. Use a restricted key when
+            available.
+          </span>
+        </div>
+
+        <div class="field">
+          <label for="source-api-timeout">Request timeout (seconds)</label>
+          <input
+            id="source-api-timeout"
+            class="input"
+            type="number"
+            min="10"
+            max="300"
+            bind:value={form.config.apiTimeoutSeconds}
+          />
+        </div>
+
+        <div class="field">
+          <label for="source-api-max">Subscriptions per sync</label>
+          <input
+            id="source-api-max"
+            class="input"
+            type="number"
+            min="1"
+            max="1000"
+            bind:value={form.config.apiMaxItems}
+          />
+        </div>
+
+        <div class="field">
+          <label for="source-api-schedule">Sync schedule</label>
+          <select id="source-api-schedule" class="select" bind:value={form.scheduleMinutes}>
             <option value={15}>every 15 minutes</option>
             <option value={30}>every 30 minutes</option>
             <option value={60}>every hour</option>

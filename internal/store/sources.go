@@ -219,6 +219,8 @@ func encodeSourceConfig(src domain.Source) ([]byte, error) {
 	switch src.Kind {
 	case domain.SourceBrowser:
 		value = src.Browser
+	case domain.SourceAPI:
+		value = src.API
 	default:
 		value = src.Email
 	}
@@ -230,8 +232,12 @@ func encodeSourceConfig(src domain.Source) ([]byte, error) {
 }
 
 func decodeSourceConfig(kind, config string, src *domain.Source) error {
-	if domain.SourceKind(kind) == domain.SourceBrowser {
+	switch domain.SourceKind(kind) {
+	case domain.SourceBrowser:
 		return json.Unmarshal([]byte(config), &src.Browser)
+	case domain.SourceAPI:
+		return json.Unmarshal([]byte(config), &src.API)
+	default:
+		return json.Unmarshal([]byte(config), &src.Email)
 	}
-	return json.Unmarshal([]byte(config), &src.Email)
 }

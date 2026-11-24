@@ -17,9 +17,13 @@ const (
 	SourceEmail SourceKind = "email"
 	// SourceBrowser reads a vendor's billing page through a signed-in browser.
 	SourceBrowser SourceKind = "browser"
+	// SourceAPI reads structured subscription data from a vendor API.
+	SourceAPI SourceKind = "api"
 )
 
-func (k SourceKind) Valid() bool { return k == SourceEmail || k == SourceBrowser }
+func (k SourceKind) Valid() bool {
+	return k == SourceEmail || k == SourceBrowser || k == SourceAPI
+}
 
 // DefaultSourceScheduleMinutes is how often an enabled source is polled.
 const DefaultSourceScheduleMinutes = 15
@@ -226,6 +230,63 @@ func (c BrowserSourceConfig) Validate() error {
 	return nil
 }
 
+// API authentication modes. API-key sources store the key as the source
+// secret; OAuth sources receive a token through the loopback flow.
+const (
+	APIAuthKey   = "api_key"
+	APIAuthOAuth = "oauth"
+)
+
+// APISourceConfig selects a declarative API connector. Its credential is never
+// stored here: only the Source's secret reference is.
+type APISourceConfig struct {
+	// Connector identifies the API connector, e.g. "stripe".
+	Connector string
+	// Auth is api_key or oauth. Empty means api_key.
+	Auth string
+	// Account is an optional label or account identifier for the source.
+	Account string
+	// TimeoutSeconds bounds one HTTP request.
+	TimeoutSeconds int
+	// MaxItems caps how many subscriptions one sync reads.
+	MaxItems int
+}
+
+// Normalize trims and applies defaults to the API configuration.
+func (c *APISourceConfig) Normalize() {
+	c.Connector = strings.ToLower(strings.TrimSpace(c.Connector))
+	c.Auth = strings.ToLower(strings.TrimSpace(c.Auth))
+	c.Account = strings.TrimSpace(c.Account)
+	if c.Auth == "" {
+		c.Auth = APIAuthKey
+	}
+	if c.TimeoutSeconds <= 0 {
+		c.TimeoutSeconds = 30
+	}
+	if c.MaxItems <= 0 {
+		c.MaxItems = 100
+	}
+}
+
+// Validate checks the API configuration before it is saved.
+func (c APISourceConfig) Validate() error {
+	if c.Connector == "" {
+		return fmt.Errorf("API connector is required")
+	}
+	switch c.Auth {
+	case APIAuthKey, APIAuthOAuth:
+	default:
+		return fmt.Errorf("unsupported API authentication mode %q", c.Auth)
+	}
+	if c.TimeoutSeconds < 10 || c.TimeoutSeconds > 300 {
+		return fmt.Errorf("API timeout must be between 10 and 300 seconds")
+	}
+	if c.MaxItems < 1 || c.MaxItems > 1000 {
+		return fmt.Errorf("items per sync must be between 1 and 1000")
+	}
+	return nil
+}
+
 // Source is a configured ingestion channel. Its credentials live in the secret
 // store under SecretRef and are never part of the stored config.
 type Source struct {
@@ -234,6 +295,7 @@ type Source struct {
 	Name            string
 	Email           EmailSourceConfig
 	Browser         BrowserSourceConfig
+	API             APISourceConfig
 	SecretRef       string
 	Enabled         bool
 	ScheduleMinutes int
@@ -251,6 +313,11 @@ func (s *Source) Normalize() {
 		s.Browser.Normalize()
 		if s.Name == "" {
 			s.Name = s.Browser.Connector
+		}
+	case SourceAPI:
+		s.API.Normalize()
+		if s.Name == "" {
+			s.Name = s.API.Connector
 		}
 	default:
 		s.Email.Normalize()
@@ -279,6 +346,8 @@ func (s Source) Validate() error {
 		return s.Email.Validate()
 	case SourceBrowser:
 		return s.Browser.Validate()
+	case SourceAPI:
+		return s.API.Validate()
 	default:
 		return fmt.Errorf("unsupported source kind %q", s.Kind)
 	}

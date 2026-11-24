@@ -226,11 +226,20 @@ func sourceDTO(src domain.Source) Source {
 }
 
 func sourceConfigDTO(src domain.Source) SourceConfig {
-	if src.Kind == domain.SourceBrowser {
+	switch src.Kind {
+	case domain.SourceBrowser:
 		return SourceConfig{
 			Connector:      src.Browser.Connector,
 			BillingURL:     src.Browser.BillingURL,
 			TimeoutSeconds: src.Browser.TimeoutSeconds,
+		}
+	case domain.SourceAPI:
+		return SourceConfig{
+			Connector:         src.API.Connector,
+			APIAuth:           src.API.Auth,
+			APIAccount:        src.API.Account,
+			APITimeoutSeconds: src.API.TimeoutSeconds,
+			APIMaxItems:       src.API.MaxItems,
 		}
 	}
 	return SourceConfig{
@@ -263,5 +272,15 @@ func sourceBrowserConfig(cfg SourceConfig) domain.BrowserSourceConfig {
 		Connector:      cfg.Connector,
 		BillingURL:     cfg.BillingURL,
 		TimeoutSeconds: cfg.TimeoutSeconds,
+	}
+}
+
+func sourceAPIConfig(cfg SourceConfig) domain.APISourceConfig {
+	return domain.APISourceConfig{
+		Connector:      cfg.Connector,
+		Auth:           cfg.APIAuth,
+		Account:        cfg.APIAccount,
+		TimeoutSeconds: cfg.APITimeoutSeconds,
+		MaxItems:       cfg.APIMaxItems,
 	}
 }

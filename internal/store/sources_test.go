@@ -148,3 +148,29 @@ func TestBrowserSourceRoundTrip(t *testing.T) {
 		t.Fatalf("browser source should not carry an email config: %+v", got.Email)
 	}
 }
+
+func TestAPISourceRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	st := testStore(t)
+
+	src := domain.Source{
+		Kind:            domain.SourceAPI,
+		Name:            "Stripe billing",
+		API:             domain.APISourceConfig{Connector: "stripe", Auth: domain.APIAuthKey, Account: "Acme", TimeoutSeconds: 45, MaxItems: 250},
+		Enabled:         true,
+		ScheduleMinutes: 60,
+	}
+	if err := st.CreateSource(ctx, &src); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	got, err := st.GetSource(ctx, src.ID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.Kind != domain.SourceAPI || got.API.Connector != "stripe" || got.API.MaxItems != 250 {
+		t.Fatalf("roundtrip = %+v", got)
+	}
+	if got.Email.Address != "" || got.Browser.Connector != "" {
+		t.Fatalf("API source carried another config: %+v", got)
+	}
+}

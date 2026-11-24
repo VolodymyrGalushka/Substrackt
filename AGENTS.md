@@ -6,9 +6,11 @@ Guidance for AI agents and contributors working in this repository.
 
 **Substrackt** is a [Wails v3](https://v3.wails.io/) desktop application (Go
 backend + Svelte 5/TypeScript frontend) that tracks subscriptions and the payment
-methods behind them. Milestones 1–4 (local CRUD, ingestion pipeline plus review
-queue, email sources, browser sources) are implemented; the roadmap (API
-connectors, renewals) lives in `docs/plan.md`.
+methods behind them. Milestones 1–5 (local CRUD, ingestion pipeline plus review
+queue, email sources, browser sources, API sources) are implemented; renewals
+and notifications remain. OAuth loopback support exists in `internal/api`, but
+the built-in Stripe/Paddle connectors use API keys. The roadmap lives in
+`docs/plan.md`.
 
 Keep changes idiomatic for Wails v3 — it differs substantially from v2.
 
@@ -90,6 +92,7 @@ internal/jobs/          persisted job queue with a cancellable worker pool
 internal/llm/           local OpenAI-compatible client (public hosts rejected)
 internal/mail/          go-imap/v2 client and MIME parsing (text/plain preferred)
 internal/browser/       Playwright engine and the vendor connector registry
+internal/api/           declarative API connectors (Stripe, Paddle) and OAuth loopback
 internal/secrets/       OS keyring with an AES-GCM encrypted 0600-file fallback
 frontend/src/           Svelte 5 UI: routes/, components/, lib/
 frontend/bindings/      generated TS bindings (do not hand-edit)
@@ -186,9 +189,23 @@ docs/plan.md            architecture and milestones
   cooldown, so an in-flight sync is not queued twice. It is best-effort; manual
   **Sync now** is always available. Syncs emit `source:status`, CRUD emits
   `source:changed`.
-- `Source` stores two typed configs (`Email`, `Browser`) but only the one for its
-  kind is marshalled. Email rows keep the historical flat JSON shape; do not add
-  a shared union envelope without a migration.
+- `Source` stores three typed configs (`Email`, `Browser`, `API`) but only the one
+  for its kind is marshalled. Email rows keep the historical flat JSON shape; do
+  not add a shared union envelope without a migration.
+- API sources use the declarative registry in `internal/api`. The built-in
+  Stripe and Paddle connectors use bearer API keys, stored under `source:<id>`
+  like email passwords; DTOs expose only `HasSecret`. API hosts must be https
+  (loopback http only for tests); keys are never included in errors. `api.sync`
+  fetches structured subscriptions and feeds the shared pipeline with
+  `RawItem.Proposal`, which skips classification/extraction but still stores an
+  artifact, matches and applies. `ConnectorFor` owns connector validation.
+- `internal/api` also contains a loopback OAuth authorization-code helper (PKCE,
+  state, 127.0.0.1 callback). No built-in connector uses OAuth yet because that
+  needs a registered vendor client; wire it only through a connector's declared
+  OAuth config.
+- API source configs (`APISourceConfig`) are stored in the existing `sources`
+  JSON column, separate from email and browser configs. Changing the API
+  connector or auth mode clears the stored credential.
 - Artifacts are redacted before storage; never persist PANs or CVVs.
 
 ## Conventions

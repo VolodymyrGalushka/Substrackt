@@ -24,6 +24,7 @@ export {
   VendorsService,
 };
 export type {
+  APIConnector,
   BrowserConnector,
   BrowserLoginStatus,
   BrowserRuntime,

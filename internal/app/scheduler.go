@@ -72,7 +72,7 @@ func (s *SourceScheduler) Tick(ctx context.Context) (int, error) {
 		if !src.Enabled || src.SecretRef == "" {
 			continue
 		}
-		if src.Kind != domain.SourceEmail && src.Kind != domain.SourceBrowser {
+		if src.Kind != domain.SourceEmail && src.Kind != domain.SourceBrowser && src.Kind != domain.SourceAPI {
 			continue
 		}
 
@@ -90,10 +90,14 @@ func (s *SourceScheduler) Tick(ctx context.Context) (int, error) {
 
 		var kind string
 		var payload any
-		if src.Kind == domain.SourceBrowser {
+		switch src.Kind {
+		case domain.SourceBrowser:
 			kind = BrowserJobKind
 			payload = browserPayload{SourceID: src.ID}
-		} else {
+		case domain.SourceAPI:
+			kind = APIJobKind
+			payload = apiPayload{SourceID: src.ID}
+		default:
 			kind = EmailJobKind
 			payload = emailPayload{SourceID: src.ID}
 		}

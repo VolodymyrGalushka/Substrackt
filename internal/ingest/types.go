@@ -17,6 +17,10 @@ type RawItem struct {
 	Content    string
 	VendorHint string
 	OccurredAt time.Time
+	// Proposal carries authoritative structured data from an API connector.
+	// When set the pipeline still stores an artifact and matches/applies the
+	// proposal, but skips classification and extraction.
+	Proposal *Proposal
 }
 
 // OccurredDate returns the item's calendar date, or the zero date.

@@ -29,6 +29,7 @@ type testApp struct {
 	browser  *BrowserManager
 	bhandler *BrowserHandler
 	bengine  *fakeBrowserEngine
+	apih     *APIHandler
 	secrets  secrets.Store
 	manager  *jobs.Manager
 	notified []ReviewItem
@@ -78,6 +79,11 @@ func newTestApp(t *testing.T) *testApp {
 	a.sources = NewSourcesService(st, secretStore, manager, a.browser)
 	a.bhandler = NewBrowserHandler(st, handler, a.browser)
 	manager.Handle(BrowserJobKind, a.bhandler.RunJob)
+	a.apih = NewAPIHandler(st, secretStore, handler)
+	a.apih.SetNotifier(func(src Source) {
+		a.sourceStatus = append(a.sourceStatus, src)
+	})
+	manager.Handle(APIJobKind, a.apih.RunJob)
 	a.email = NewEmailHandler(st, secretStore, handler)
 	a.email.SetNotifier(func(src Source) {
 		a.sourceStatus = append(a.sourceStatus, src)

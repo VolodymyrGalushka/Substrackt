@@ -33,7 +33,7 @@ how often, with which payment method, and where the information came from.
 │                      Match → Propose/Auto-apply                            │
 │   ├── email/   IMAP + MIME (go-imap v2, go-message)                        │
 │   ├── browser/ Playwright sessions + per-vendor connectors                 │
-│   ├── api/     declarative HTTP connectors (Stripe, Paddle, …)             │
+│   ├── api/     declarative HTTP connectors (Stripe, Paddle) + OAuth loopback│
 │   └── manual/  direct service calls, same pipeline downstream              │
 │ llm/  OpenAI-compatible client only, schema-validated extraction,          │
 │       repair retry, content-hash cache, usage log                          │
@@ -75,7 +75,7 @@ monthly-equivalent normalisation per currency.
 | `PaymentMethods` | list/create/update/archive/delete |
 | `Vendors` | list/create/update/delete |
 | `Dashboard` | summary (spend, upcoming, by payment method) |
-| `Sources` | email/browser source CRUD, connection test, browser sign-in, sync now, automatic schedule |
+| `Sources` | email/browser/API source CRUD, connection test, browser sign-in, sync now, automatic schedule |
 | `Review` | pending list, get, count, accept/reject, bulk accept |
 | `Jobs` | list, get, cancel, retry, counts |
 | `Settings` | get/update/reset, LLM endpoint test, usage log |
@@ -173,6 +173,24 @@ text, so extraction, dedupe, matching and review are shared. An expired session
 clears the stored state and marks the source so the UI asks for a new sign-in.
 Only one browser window is opened per source at a time.
 
+## API sources
+
+**Sources → Add source → Vendor API** selects a connector from `internal/api`.
+The built-in connectors are **Stripe** and **Paddle**, both authenticated with a
+read-only bearer API key stored under `source:<id>` in the secret store. The
+connector registry declares each API's base URL, pagination style, JSON field
+mapping, status map and interval map; the client only permits https hosts
+(loopback http is reserved for tests) and never logs credentials.
+
+An `api.sync` job fetches up to the configured item limit, maps each subscription
+to `ingest.Proposal`, and sends a `RawItem` with structured data through the
+shared pipeline. The pipeline still stores a redacted artifact and dedupes it,
+but skips classification and extraction; matching and review are unchanged.
+Changing the connector or auth mode clears the stored credential. The OAuth
+loopback helper in `internal/api` (PKCE, state, 127.0.0.1 callback) is ready for
+connectors that have a registered vendor OAuth client; no built-in connector
+uses it yet.
+
 ## Milestones
 
 | Milestone | Status | Contents |
@@ -181,12 +199,13 @@ Only one browser window is opened per source at a time.
 | **M2 — ingestion core** | done | jobs + events, settings + local LLM client, review queue, manual ingestion through the pipeline, review/activity/settings UI |
 | **M3 — email source** | done | sources + secret store, IMAP cursors/artifacts, MIME parsing, email classification, scheduled and manual sync, Sources UI |
 | **M4 — browser source** | done | Playwright framework, default-browser cookie import plus isolated sign-in, saved sessions, scheduled browser sync, GitHub billing connector |
-| **M5** | next | declarative API connectors, OAuth loopback |
-| **M6** | | renewals/notifications, spend history from charges, export/import |
+| **M5 — API source** | done | declarative Stripe/Paddle connectors, API-key secret storage, structured ingestion, OAuth loopback helper |
+| **M6** | next | renewals/notifications, spend history from charges, export/import |
 
-## Non-goals for M4
+## Non-goals for M4/M5
 
-- No API connectors or OAuth loopback flows yet.
+- No built-in OAuth-backed vendor connector yet; `internal/api` ships the
+  loopback helper, but a real connector needs a registered vendor client.
 - No headless-browser CAPTCHA solving or anti-bot evasion; if a vendor blocks
   automated sign-in, the user sees the vendor page and can cancel.
 - No screenshots in artifacts yet; browser evidence is the redacted page text.
