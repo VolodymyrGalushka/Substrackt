@@ -12,6 +12,12 @@ runs on your machine —
 data lives in a local SQLite database, secrets live in your OS keyring, and
 nothing is sent anywhere unless you explicitly point it at your own services.
 
+<p align="center">
+  <img src="docs/screenshot.png" alt="The Substrackt dashboard: monthly and yearly spend, upcoming renewals, spend by payment method and top vendors" width="900">
+</p>
+
+Built with [Wails v3](https://v3.wails.io/) (Go backend) and Svelte 5 + TypeScript.
+
 ## Features
 
 **Know what you pay**
