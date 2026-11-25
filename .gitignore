@@ -3,3 +3,6 @@
 bin
 frontend/dist
 frontend/node_modules
+build/linux/appimage/build/
+build/linux/appimage/substrackt
+build/linux/appimage/substrackt.png

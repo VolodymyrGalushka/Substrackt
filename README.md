@@ -77,6 +77,22 @@ go test -tags gtk3 ./internal/... # domain, store and service tests
 Tagged releases (for example `v0.2.0`) produce a GitHub release with the Linux
 tarball, the macOS `.app` bundle and the Windows `.exe`, plus checksums.
 
+## Installing on Linux
+
+Linux releases ship as native packages rather than a single universal binary —
+GTK and WebKit are system libraries and must come from your distribution:
+
+- **`.deb`** — Debian 12+, Ubuntu 22.04+, Mint, Pop!_OS. Pulls
+  `libgtk-3-0` and `libwebkit2gtk-4.1-0` automatically.
+- **`.rpm`** — Fedora 36+, RHEL/AlmaLinux/Rocky (needs `gtk3` +
+  `webkit2gtk4.1` packages, provided by the repos).
+- **`.AppImage`** — carries its own GTK and WebKit libraries; runs on any
+  reasonably modern distribution without installing anything.
+- **Arch** — build from source with `wails3 task linux:create:aur` and install
+  the generated `substrackt.pkg.tar.zst` with `pacman -U`.
+
+One build serves all of these; only the packaging differs.
+
 ## Where your data lives
 
 `<user config dir>/Substrackt/substrackt.db` (e.g. `~/.config/Substrackt/` on

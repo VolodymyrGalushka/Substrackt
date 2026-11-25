@@ -49,14 +49,21 @@ jobs:
       - name: Frontend check
         run: npm --prefix frontend run check
 
-      - name: Build
-        run: wails3 build
+      - name: Build and package
+        run: wails3 task linux:package
+        env:
+          # The CI runner has no FUSE; AppImages extract-and-run instead.
+          APPIMAGE_EXTRACT_AND_RUN: "1"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: substrackt-linux-amd64
-          path: bin/substrackt
+          path: |
+            bin/substrackt
+            bin/substrackt.deb
+            bin/substrackt.rpm
+            bin/substrackt.AppImage
           if-no-files-found: error
 
   macos:
@@ -147,9 +154,14 @@ jobs:
 
       - name: Collect release files
         run: |
+          VERSION="${GITHUB_REF_NAME#v}"
           mkdir -p release
           chmod +x dist/substrackt-linux-amd64/substrackt
           tar -czf release/substrackt-linux-amd64.tar.gz -C dist/substrackt-linux-amd64 substrackt
+          cp dist/substrackt-linux-amd64/substrackt.deb "release/substrackt-${VERSION}-amd64.deb"
+          cp dist/substrackt-linux-amd64/substrackt.rpm "release/substrackt-${VERSION}-amd64.rpm"
+          cp dist/substrackt-linux-amd64/substrackt.AppImage "release/substrackt-${VERSION}-amd64.AppImage"
+          chmod +x "release/substrackt-${VERSION}-amd64.AppImage"
           cp dist/substrackt-macos-arm64/substrackt-macos-arm64.zip release/
           cp dist/substrackt-windows-amd64/substrackt.exe release/Substrackt-windows-amd64.exe
           sha256sum release/* > release/checksums.txt
