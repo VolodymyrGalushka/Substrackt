@@ -68,7 +68,7 @@ jobs:
             bin/substrackt
             bin/substrackt.deb
             bin/substrackt.rpm
-            bin/substrackt.AppImage
+            bin/substrackt-*.AppImage
           if-no-files-found: error
 
   macos:
@@ -165,7 +165,7 @@ jobs:
           tar -czf release/substrackt-linux-amd64.tar.gz -C dist/substrackt-linux-amd64 substrackt
           cp dist/substrackt-linux-amd64/substrackt.deb "release/substrackt-${VERSION}-amd64.deb"
           cp dist/substrackt-linux-amd64/substrackt.rpm "release/substrackt-${VERSION}-amd64.rpm"
-          cp dist/substrackt-linux-amd64/substrackt.AppImage "release/substrackt-${VERSION}-amd64.AppImage"
+          cp dist/substrackt-linux-amd64/substrackt-*.AppImage "release/substrackt-${VERSION}-amd64.AppImage"
           chmod +x "release/substrackt-${VERSION}-amd64.AppImage"
           cp dist/substrackt-macos-arm64/substrackt-macos-arm64.zip release/
           cp dist/substrackt-windows-amd64/substrackt.exe release/Substrackt-windows-amd64.exe
