@@ -4,6 +4,8 @@
 
 # Substrackt
 
+[![Builds](https://github.com/VolodymyrGalushka/Substrackt/actions/workflows/builds.yml/badge.svg)](https://github.com/VolodymyrGalushka/Substrackt/actions/workflows/builds.yml)
+
 A desktop app for Linux, macOS and Windows that tracks subscriptions: what you
 pay, how often, with which payment method, and when it renews next. Everything
 runs on your machine —

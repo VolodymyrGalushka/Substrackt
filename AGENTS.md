@@ -224,6 +224,11 @@ docs/plan.md            architecture and milestones
   build breaks.
 - Product metadata lives in `build/config.yml`; after editing `info` or
   `fileAssociations`, run `wails3 task common:update:build-assets`.
+  **Warning:** that task regenerates `build/linux/nfpm/nfpm.yaml`, the plists,
+  `wails_tools.nsh`, the manifests and the `.desktop` file from the Wails
+  template — hand edits (nfpm depends for the GTK3/WebKit2GTK-4.1 stack,
+  license, homepage; `build/ios/entitlements.plist` comments) are silently
+  reverted. Re-apply them after running it, or restore them from history.
 - Frontend entry points: `src/main.ts` mounts `App.svelte`; routing is hash-based
   (`lib/router.svelte.ts`); shared state lives in `lib/state.svelte.ts`. Theme is
   `system`/`light`/`dark` in `lib/theme.svelte.ts`: it writes
