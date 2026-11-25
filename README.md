@@ -181,3 +181,19 @@ yet; a vendor connector can opt in once it has a registered OAuth client.
 - `github.com/zalando/go-keyring` — OS keyring access, with the encrypted file
   fallback in `internal/secrets`.
 - `wails3 build` runs `go mod tidy`, so anything nothing imports gets pruned.
+
+## License
+
+Substrackt is licensed under the **Functional Source License, Version 1.1,
+ALv2 Future License** ([`LICENSE`](LICENSE)) — see the
+[FSL FAQ](https://fsl.software/) for background.
+
+In short: you can read, study, modify and run Substrackt for almost any
+purpose, including internal use and non-commercial research. What you may not
+do is offer a competing product or service — one that substitutes for
+Substrackt or offers substantially similar functionality. Two years after each
+version is published, that version converts to the **Apache License 2.0** and
+becomes fully open source.
+
+Contributions are welcome: open an issue or a pull request, and your changes
+will be accepted under the same license.
