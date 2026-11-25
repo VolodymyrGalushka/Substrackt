@@ -1,14 +1,20 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import type { Job } from "../lib/api";
   import { JobsService, errorMessage } from "../lib/api";
   import ImportEvidence from "../components/ImportEvidence.svelte";
-  import { loadJobs, loadReviewCount, store } from "../lib/state.svelte";
+  import { loadJobs, loadLLMUsage, loadReviewCount, store } from "../lib/state.svelte";
 
   let importOpen = $state(false);
   let busyId = $state("");
 
   const jobs = $derived(store.jobs);
   const counts = $derived(store.jobCounts);
+  const usage = $derived(store.llmUsage);
+
+  onMount(() => {
+    void loadLLMUsage();
+  });
 
   function kindLabel(kind: string): string {
     switch (kind) {
@@ -36,17 +42,20 @@
     }
   }
 
-  function when(job: Job): string {
-    const stamp = job.finishedAt || job.startedAt || job.createdAt;
-    if (!stamp) return "—";
-    const date = new Date(stamp);
-    if (Number.isNaN(date.getTime())) return stamp;
+  function whenStamp(value: string): string {
+    if (!value) return "—";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
     return date.toLocaleString(undefined, {
       month: "short",
       day: "numeric",
       hour: "2-digit",
       minute: "2-digit",
     });
+  }
+
+  function when(job: Job): string {
+    return whenStamp(job.finishedAt || job.startedAt || job.createdAt);
   }
 
   function isActive(job: Job): boolean {
@@ -83,7 +92,7 @@
   <header class="page-head">
     <div>
       <h1>Activity</h1>
-      <p>Background imports and their progress. Jobs survive an app restart.</p>
+      <p>Background imports, their progress, and recent model calls. Jobs survive an app restart.</p>
     </div>
     <div class="row">
       <button class="btn" onclick={() => void loadJobs()}>Refresh</button>
@@ -180,6 +189,57 @@
       </table>
     </div>
   {/if}
+
+  <section class="card">
+    <div class="row" style="justify-content: space-between; margin-bottom: 12px;">
+      <h3 style="margin: 0;">Recent model calls</h3>
+      <button class="btn ghost sm" onclick={() => void loadLLMUsage()}>Refresh</button>
+    </div>
+
+    {#if usage.length === 0}
+      <div class="empty">
+        <strong>No model calls yet</strong>
+        <span>Calls are logged when an import uses the configured model. Prompts and responses are never stored.</span>
+      </div>
+    {:else}
+      <div class="table-wrap flat">
+        <table>
+          <thead>
+            <tr>
+              <th>When</th>
+              <th>Model</th>
+              <th class="num">Tokens</th>
+              <th class="num">Latency</th>
+              <th>Result</th>
+            </tr>
+          </thead>
+          <tbody>
+            {#each usage as row (row.id)}
+              <tr>
+                <td class="cell-sub">{whenStamp(row.createdAt)}</td>
+                <td>
+                  <div>{row.model || "—"}</div>
+                  <div class="cell-sub mono">{row.baseUrl}</div>
+                </td>
+                <td class="num mono">{row.promptTokens + row.completionTokens}</td>
+                <td class="num mono">{row.latencyMs} ms</td>
+                <td>
+                  {#if row.cached}
+                    <span class="badge">Cache hit</span>
+                  {:else if row.ok}
+                    <span class="badge ok">OK</span>
+                  {:else}
+                    <span class="badge failed">Failed</span>
+                    {#if row.error}<div class="cell-sub error-text">{row.error}</div>{/if}
+                  {/if}
+                </td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
+    {/if}
+  </section>
 </div>
 
 <ImportEvidence open={importOpen} onclose={() => (importOpen = false)} onqueued={() => void loadJobs()} />

@@ -129,6 +129,7 @@ export async function loadAll(): Promise<void> {
       loadJobs(),
       loadSettings(),
       loadSources(),
+      loadLLMUsage(),
     ]);
   } finally {
     store.loading = false;

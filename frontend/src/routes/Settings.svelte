@@ -3,7 +3,7 @@
   import Modal from "../components/Modal.svelte";
   import type { BrowserRuntime, LLMTestResult, Settings } from "../lib/api";
   import { SettingsService, SourcesService, errorMessage } from "../lib/api";
-  import { loadLLMUsage, loadSettings, store } from "../lib/state.svelte";
+  import { loadSettings, store } from "../lib/state.svelte";
   import { setTheme, theme, type ThemeMode } from "../lib/theme.svelte";
 
   let form = $state<Settings>(blank());
@@ -56,7 +56,6 @@
   });
 
   onMount(() => {
-    void loadLLMUsage();
     void loadSettings();
     void refreshBrowserRuntime();
   });
@@ -176,33 +175,18 @@
       form = { ...settings };
       testResult = null;
       notice = "Defaults restored.";
-      await loadLLMUsage();
       await refreshBrowserRuntime();
     } catch (err) {
       formError = errorMessage(err);
     }
   }
-
-  function when(stamp: string): string {
-    if (!stamp) return "—";
-    const date = new Date(stamp);
-    if (Number.isNaN(date.getTime())) return stamp;
-    return date.toLocaleString(undefined, {
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  }
-
-  const usage = $derived(store.llmUsage);
 </script>
 
 <div class="page">
   <header class="page-head">
     <div>
       <h1>Settings</h1>
-      <p>Preferences, the extraction model, and its recent activity.</p>
+      <p>Preferences and the extraction model.</p>
     </div>
     <button class="btn ghost" onclick={reset}>Restore defaults</button>
   </header>
@@ -430,57 +414,6 @@
       </button>
     </div>
   </form>
-
-  <section class="card">
-    <div class="row" style="justify-content: space-between; margin-bottom: 12px;">
-      <h3 style="margin: 0;">Recent model calls</h3>
-      <button class="btn ghost sm" onclick={() => void loadLLMUsage()}>Refresh</button>
-    </div>
-
-    {#if usage.length === 0}
-      <div class="empty">
-        <strong>No model calls yet</strong>
-        <span>Calls are logged when an import uses the configured model. Prompts and responses are never stored.</span>
-      </div>
-    {:else}
-      <div class="table-wrap flat">
-        <table>
-          <thead>
-            <tr>
-              <th>When</th>
-              <th>Model</th>
-              <th class="num">Tokens</th>
-              <th class="num">Latency</th>
-              <th>Result</th>
-            </tr>
-          </thead>
-          <tbody>
-            {#each usage as row (row.id)}
-              <tr>
-                <td class="cell-sub">{when(row.createdAt)}</td>
-                <td>
-                  <div>{row.model || "—"}</div>
-                  <div class="cell-sub mono">{row.baseUrl}</div>
-                </td>
-                <td class="num mono">{row.promptTokens + row.completionTokens}</td>
-                <td class="num mono">{row.latencyMs} ms</td>
-                <td>
-                  {#if row.cached}
-                    <span class="badge">Cache hit</span>
-                  {:else if row.ok}
-                    <span class="badge ok">OK</span>
-                  {:else}
-                    <span class="badge failed">Failed</span>
-                    {#if row.error}<div class="cell-sub error-text">{row.error}</div>{/if}
-                  {/if}
-                </td>
-              </tr>
-            {/each}
-          </tbody>
-        </table>
-      </div>
-    {/if}
-  </section>
 </div>
 
 <Modal open={consentOpen} title="Send data to a remote endpoint?" onclose={cancelConsent}>
