@@ -41,13 +41,18 @@ jobs:
       - name: Frontend dependencies
         run: npm ci --prefix frontend
 
+      - name: Frontend check
+        run: npm --prefix frontend run check
+
+      - name: Build frontend
+        # The vite output is gitignored; go vet on the main package needs
+        # frontend/dist to exist for the go:embed directive.
+        run: npm --prefix frontend run build
+
       - name: Vet and test
         run: |
           go vet -tags gtk3 . ./internal/...
           go test -tags gtk3 ./internal/...
-
-      - name: Frontend check
-        run: npm --prefix frontend run check
 
       - name: Build and package
         run: wails3 task linux:package
