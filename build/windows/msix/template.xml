@@ -17,7 +17,7 @@
         PackageDisplayName="Substrackt"
         PublisherName="CN=Substrackt"
         PublisherDisplayName="Substrackt"
-        Version="0.2.0.0"
+        Version="0.2.1.0"
         PackageDescription="Substrackt desktop app">
         <Capabilities>
             <Capability Name="runFullTrust" />
