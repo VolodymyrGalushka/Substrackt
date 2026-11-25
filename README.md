@@ -1,18 +1,47 @@
+<p align="center">
+  <img src="build/appicon.png" alt="Substrackt icon" width="128">
+</p>
+
 # Substrackt
 
 A desktop app for tracking subscriptions: what you pay, how often, with which
-payment method, and when it renews next. Built with
-[Wails v3](https://v3.wails.io/) (Go backend) and Svelte 5 + TypeScript.
+payment method, and when it renews next. Everything runs on your machine —
+data lives in a local SQLite database, secrets live in your OS keyring, and
+nothing is sent anywhere unless you explicitly point it at your own services.
 
-Data lives in a local **SQLite** database — nothing leaves the machine. Email,
-browser and API sources feed the same review queue as manual imports: connect an
-IMAP mailbox, sign in to a vendor billing page, or read subscriptions directly
-from Stripe or Paddle with a read-only key. Extraction can use a **local**
-OpenAI-compatible model. The longer-term plan (OAuth-backed connectors,
-renewals) is in [`docs/plan.md`](docs/plan.md).
+## Features
 
-The interface has light and dark palettes plus **Use system theme**, which
-follows the OS setting live; the choice is remembered locally on the device.
+**Know what you pay**
+- Dashboard with monthly spend, spending by payment method and upcoming renewals.
+- Subscriptions with amount, currency, billing interval and next renewal —
+  month ends are handled safely (a January 31st renewal lands on February 28th).
+- Payment methods are stored as **metadata only** — label, issuer, network, last
+  four digits. Card numbers and CVVs are never accepted or stored.
+
+**Capture from anywhere**
+- **Import text** — paste any receipt or email and let the pipeline read it.
+- **Email sources** — connect an IMAP mailbox (Yahoo, Gmail, iCloud, Fastmail,
+  Outlook/Microsoft 365 or a custom server). Syncs are incremental; obvious
+  non-billing mail is skipped before anything else happens.
+- **Browser sources** — sign in to a vendor's billing page (GitHub first) from
+  the browser you already use; only that vendor's session cookies are imported.
+- **API sources** — read subscriptions straight from Stripe or Paddle with a
+  read-only API key.
+- All of them feed one shared pipeline: dedupe → extract → match → review.
+
+**Extraction with a local model (optional)**
+- Uses any OpenAI-compatible endpoint on your machine or private network —
+  Ollama, LM Studio, llama.cpp, a home-lab box. Nothing is sent to hosted AI
+  services; a non-local endpoint only works after you accept an explicit
+  warning that your documents will be sent there.
+- Unambiguous, high-confidence proposals can be applied automatically
+  (adjustable threshold). Price changes and cancellations always wait for you.
+
+**Stay in control**
+- **Review queue** with one-click accept/reject and bulk actions.
+- **Activity** page showing import job progress and recent model calls
+  (tokens, latency, results — prompts and answers are never stored).
+- Light, dark and **use system theme**, following your desktop live.
 
 ## Requirements
 
@@ -25,17 +54,11 @@ follows the OS setting live; the choice is remembered locally on the device.
   go install -tags gtk3 github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0
   ```
 
-### Linux / GTK note
+- **Linux only for now** — the window is GTK3 + WebKit2GTK 4.1, so the matching
+  development packages must be installed (e.g. `gtk3-devel`, `webkit2gtk-4.1-devel`
+  on Fedora).
 
-This project defaults to the **GTK3 + WebKit2GTK 4.1** backend because
-`gtk4-devel` and `webkitgtk6.0-devel` are not installed on this machine.
-`build/linux/Taskfile.yml` sets `EXTRA_TAGS: gtk3` so plain `wails3 build` and
-`wails3 dev` work as-is.
-
-If you install the GTK4 packages (`sudo dnf install gtk4-devel webkitgtk6.0-devel`),
-delete that `EXTRA_TAGS` default to use Wails' upstream GTK4 / WebKitGTK 6.0 backend.
-
-## Commands
+## Build and run
 
 ```sh
 wails3 dev               # run with hot reload
@@ -45,56 +68,26 @@ npm --prefix frontend run check   # svelte-check (types + a11y)
 go test -tags gtk3 ./internal/... # domain, store and service tests
 ```
 
-## Where data is stored
+## Where your data lives
 
 `<user config dir>/Substrackt/substrackt.db` (e.g. `~/.config/Substrackt/` on
-Linux). Set `SUBSTRACKT_HOME` to use a different directory. Source passwords are
-kept separately in the OS keyring, or in `<config dir>/Substrackt/secrets/` as an
-encrypted 0600 file when no keyring is available.
+Linux). Set `SUBSTRACKT_HOME` to use a different directory. Source passwords,
+vendor sessions and API keys are kept in the OS keyring — or in
+`<config dir>/Substrackt/secrets/` as an encrypted `0600` file when no keyring
+is available. They are never written to the database, never sent to the
+interface, and never appear in logs.
 
-## Layout
+## Adding subscriptions
 
-```
-main.go                 app entry: DB path, services, window, embedded assets
-internal/domain/        models, Money, calendar Date, billing math, ULID ids
-internal/store/         SQLite (modernc.org/sqlite), WAL, embedded migrations
-internal/app/           Wails-bound services, DTOs, mappers, tests
-internal/ingest/        normalize, dedupe, classify, heuristics, pipeline
-internal/jobs/          persisted worker pool with cooperative cancellation
-internal/llm/           local OpenAI-compatible client (no cloud endpoints)
-internal/mail/          go-imap v2 client and MIME parsing
-internal/secrets/       OS keyring with an encrypted 0600-file fallback
-frontend/src/           Svelte 5 UI: routes, components, lib helpers
-frontend/bindings/      generated TS bindings (do not hand-edit)
-build/                  platform build assets and Taskfiles
-docs/plan.md            architecture, decisions and milestones
-```
-
-## Schema
-
-Migration `internal/store/migrations/0001_init.sql` creates `vendors`,
-`payment_methods` and `subscriptions`. Migration `0002_ingestion.sql` adds
-`jobs`, `artifacts`, `extractions`, `settings`, `llm_cache` and `llm_usage`.
-Migration `0003_sources.sql` adds `sources` and `mailbox_cursors`. Amounts are
-stored as integer minor units with a currency and scale (2 for USD, 8 for BTC);
-billing dates are calendar dates, so month-end clamping (Jan 31 → Feb 28) does
-not drift. Payment methods keep only non-sensitive metadata — never a full card
-number or CVV. Artifacts are redacted before they are stored, so PAN-like numbers
-and CVVs never reach the database.
-
-## Manual ingestion
+### Import text
 
 **Review queue → Import text** (or **Activity → Import text**) queues a job for
 pasted receipt or email text. The pipeline normalises the content, dedupes by
-SHA-256, extracts fields with local rules, and — when a local model is configured
-in **Settings** — validates a JSON extraction from it. Results land in **Review
+SHA-256, extracts fields with local rules, and — when a model is configured in
+**Settings** — validates a JSON extraction from it. Results land in **Review
 queue**, except for unambiguous high-confidence proposals when auto-apply is on.
-Price changes and cancellations always need a human decision. The LLM endpoint
-must be loopback, private-network or a local service name; queries and
-credentials are rejected, and a public host can only be saved after you accept
-a warning that your documents will be sent there.
 
-## Email sources
+### Email
 
 **Sources → Add source** configures an IMAP mailbox, starting from a provider
 preset (Yahoo, Gmail, iCloud, Fastmail, Outlook/Microsoft 365, or custom).
@@ -112,21 +105,16 @@ auth is disabled, such as Microsoft 365. The password field has
 **Show/Hide**, and an existing source can load its saved credential into the
 editor explicitly with **Reveal saved**.
 
-Passwords are stored in
-the OS keyring when it is available and otherwise in an encrypted 0600 file; they
-are never returned to the frontend in DTOs, events or logs, and never written to
-SQLite. `RevealPassword` is only called by that explicit user action.
-
 **Test connection** checks the credentials without saving. **Sync now** queues an
 email job; enabled sources are also polled on their schedule. Each sync reads a
-per-mailbox UID cursor, fetches only newer messages (or a bounded recent window
+per-mailbox cursor, fetches only newer messages (or a bounded recent window
 on the first run), parses MIME text/HTML, and sends each message through the same
 pipeline as manual imports. Obvious non-billing mail is skipped before the model;
-everything else lands in **Review queue**. A changed `UIDVALIDITY` triggers a
+everything else lands in **Review queue**. A changed mailbox UID validity triggers a
 rescan, and failures are recorded on the source without losing the last good
 cursor.
 
-## Browser sources
+### Vendor websites (browser)
 
 **Sources → Add source → Vendor website (browser)** signs in to a vendor's own
 billing page. The first connector is **GitHub**; the page list is extensible in
@@ -134,7 +122,7 @@ billing page. The first connector is **GitHub**; the page list is extensible in
 (it must stay on the vendor's host), then **Add source**. By default, **Sign in**
 opens a new tab in your existing browser, where you complete the normal
 password/2FA/SSO flow; Substrackt imports only that vendor's session cookies and
-stores them as a secret under `source:<id>:session`. The isolated method instead
+stores them as a secret. The isolated method instead
 opens a separate Playwright window, waits for the vendor's signed-in page and
 closes it. **Cancel sign-in** stops waiting and leaves the source signed out.
 
@@ -155,20 +143,16 @@ headless sync (**Automatic** prefers installed Chrome, Brave, Chromium or Edge,
 then bundled Chromium). On Windows, browsers using App-Bound Encryption may
 require the isolated method.
 
-## API sources
+### Vendor APIs
 
 **Sources → Add source → Vendor API** reads structured subscriptions from a
 vendor's API. The first connectors are **Stripe** and **Paddle**; both accept a
 read-only API key, stored in the OS keyring or the encrypted fallback and never
-returned by a DTO. The API host must be https. **Sync now** and the schedule
-enqueue an `api.sync` job that reads the account's subscriptions, maps them to
+returned by the interface. The API host must be https. **Sync now** and the
+schedule enqueue a sync job that reads the account's subscriptions, maps them to
 the same subscription model used by email and browser sources, and lets the
 shared pipeline match or propose them. Price or status changes go through the
 review queue.
-
-`internal/api` also contains the OAuth loopback helper (authorization-code with
-PKCE, state validation and a 127.0.0.1 callback). No built-in connector uses it
-yet; a vendor connector can opt in once it has a registered OAuth client.
 
 ## Dependencies
 
@@ -181,7 +165,6 @@ yet; a vendor connector can opt in once it has a registered OAuth client.
   billing-page reads for browser sources.
 - `github.com/zalando/go-keyring` — OS keyring access, with the encrypted file
   fallback in `internal/secrets`.
-- `wails3 build` runs `go mod tidy`, so anything nothing imports gets pruned.
 
 ## License
 
