@@ -5,7 +5,7 @@
 !include "FileFunc.nsh"
 
 !ifndef INFO_PROJECTNAME
-    !define INFO_PROJECTNAME "Substrackt"
+    !define INFO_PROJECTNAME "substrackt"
 !endif
 !ifndef INFO_COMPANYNAME
     !define INFO_COMPANYNAME "Substrackt"
@@ -14,10 +14,10 @@
     !define INFO_PRODUCTNAME "Substrackt"
 !endif
 !ifndef INFO_PRODUCTVERSION
-    !define INFO_PRODUCTVERSION "0.1.0"
+    !define INFO_PRODUCTVERSION "0.2.0"
 !endif
 !ifndef INFO_COPYRIGHT
-    !define INFO_COPYRIGHT "© 2026, My Company"
+    !define INFO_COPYRIGHT "(c) 2026, Substrackt"
 !endif
 !ifndef PRODUCT_EXECUTABLE
     !define PRODUCT_EXECUTABLE "${INFO_PROJECTNAME}.exe"
