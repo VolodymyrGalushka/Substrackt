@@ -38,12 +38,17 @@ type Settings struct {
 	Timezone string
 	// BaseCurrency is the fallback currency when a source omits one.
 	BaseCurrency string
-	// LLMBaseURL is an OpenAI-compatible local/self-hosted endpoint. It is never
-	// allowed to point at a public host.
+	// LLMBaseURL is an OpenAI-compatible endpoint. It must be local unless the
+	// user has explicitly accepted the data-exposure warning recorded in
+	// LLMRemoteConsent.
 	LLMBaseURL string
 	LLMModel   string
 	// LLMTimeoutSeconds bounds a single extraction request.
 	LLMTimeoutSeconds int
+	// LLMRemoteConsent records that the user accepted sending subscription data
+	// to a non-local endpoint. It is cleared whenever no remote endpoint is
+	// configured, so a later remote endpoint must be accepted again.
+	LLMRemoteConsent bool
 	// AutoApply lets unambiguous, high-confidence proposals create
 	// subscriptions directly instead of waiting in the review queue.
 	AutoApply          bool
@@ -72,6 +77,9 @@ func (s *Settings) Normalize() {
 	s.BaseCurrency = strings.ToUpper(strings.TrimSpace(s.BaseCurrency))
 	s.LLMBaseURL = strings.TrimSpace(s.LLMBaseURL)
 	s.LLMModel = strings.TrimSpace(s.LLMModel)
+	if s.LLMBaseURL == "" {
+		s.LLMRemoteConsent = false
+	}
 	s.BrowserRuntime = strings.ToLower(strings.TrimSpace(s.BrowserRuntime))
 	if s.BrowserRuntime == "" {
 		s.BrowserRuntime = BrowserRuntimeAuto

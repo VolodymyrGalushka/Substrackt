@@ -853,6 +853,12 @@ tbody tr:hover .row-actions {
   color: var(--danger-text-strong);
 }
 
+.banner.warn {
+  border-color: var(--amber-border);
+  background: var(--amber-soft);
+  color: var(--warn-text);
+}
+
 .loading {
   padding: 60px 0;
   text-align: center;

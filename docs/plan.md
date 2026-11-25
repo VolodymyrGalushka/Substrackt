@@ -9,7 +9,7 @@ how often, with which payment method, and where the information came from.
 | --- | --- |
 | Storage | **SQLite** (`modernc.org/sqlite`, pure Go), WAL mode, embedded migrations |
 | Frontend | **Svelte 5 + TypeScript + Vite** |
-| LLM | **OpenAI-compatible API, local/self-hosted only** (Ollama, LM Studio, llama.cpp). No cloud calls; no vendor-hosted keys. |
+| LLM | **OpenAI-compatible API, local/self-hosted by default** (Ollama, LM Studio, llama.cpp). No cloud calls; no vendor-hosted keys. A non-local endpoint works only after the user accepts an explicit data-exposure warning. |
 | Browser automation | **Playwright-go**, browsers from the local Playwright cache |
 | Secrets | OS keyring where available, 0600 encrypted-file fallback |
 | Ingestion channels | email (IMAP + LLM parsing), vendor API, headless browser, manual |
@@ -210,4 +210,5 @@ uses it yet.
   automated sign-in, the user sees the vendor page and can cancel.
 - No screenshots in artifacts yet; browser evidence is the redacted page text.
 - No charge history, notifications or multi-currency conversion.
-- No cloud LLM support of any kind.
+- No cloud LLM support of any kind without explicit user consent; a non-local
+  endpoint requires accepting the data-exposure warning first.

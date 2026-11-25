@@ -243,10 +243,20 @@ type Settings struct {
 	LLMBaseURL         string  `json:"llmBaseUrl"`
 	LLMModel           string  `json:"llmModel"`
 	LLMTimeoutSeconds  int     `json:"llmTimeoutSeconds"`
+	LLMRemoteConsent   bool    `json:"llmRemoteConsent"`
 	AutoApply          bool    `json:"autoApply"`
 	AutoApplyThreshold float64 `json:"autoApplyThreshold"`
 	BrowserRuntime     string  `json:"browserRuntime"`
 	BrowserSignIn      string  `json:"browserSignIn"`
+}
+
+// LLMEndpointCheck classifies an endpoint before it is saved so the UI can
+// warn the user when documents would be sent off this machine.
+type LLMEndpointCheck struct {
+	Valid  bool   `json:"valid"`
+	Remote bool   `json:"remote"`
+	Host   string `json:"host"`
+	Error  string `json:"error"`
 }
 
 // LLMTestResult is the outcome of probing the local endpoint.

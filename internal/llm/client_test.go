@@ -3,6 +3,7 @@ package llm
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -23,19 +24,40 @@ func TestValidateBaseURL(t *testing.T) {
 		if _, err := ValidateBaseURL(raw); err != nil {
 			t.Fatalf("expected %q to be allowed: %v", raw, err)
 		}
+		// Local endpoints need no consent either way.
+		if _, err := ValidateBaseURLConsent(raw, false); err != nil {
+			t.Fatalf("expected %q without consent to be allowed: %v", raw, err)
+		}
 	}
 
-	rejected := []string{
+	remote := []string{
 		"https://api.openai.com/v1",
 		"https://api.anthropic.com",
 		"https://example.com/v1",
+	}
+	for _, raw := range remote {
+		if _, err := ValidateBaseURL(raw); !errors.Is(err, ErrRemoteEndpoint) {
+			t.Fatalf("expected %q to be refused as remote, got %v", raw, err)
+		}
+		if _, err := ValidateBaseURLConsent(raw, false); !errors.Is(err, ErrRemoteEndpoint) {
+			t.Fatalf("expected %q without consent to be refused, got %v", raw, err)
+		}
+		if _, err := ValidateBaseURLConsent(raw, true); err != nil {
+			t.Fatalf("expected %q with consent to be allowed: %v", raw, err)
+		}
+	}
+
+	// The structural rules apply even with consent: no odd schemes, embedded
+	// credentials, queries or fragments.
+	structural := []string{
 		"ftp://127.0.0.1:11434",
 		"http://user:pass@127.0.0.1:11434",
 		"http://127.0.0.1:11434?key=secret",
+		"https://api.openai.com/v1?key=secret",
 	}
-	for _, raw := range rejected {
-		if _, err := ValidateBaseURL(raw); err == nil {
-			t.Fatalf("expected %q to be rejected", raw)
+	for _, raw := range structural {
+		if _, err := ValidateBaseURLConsent(raw, true); err == nil {
+			t.Fatalf("expected %q to be rejected even with consent", raw)
 		}
 	}
 
@@ -45,6 +67,45 @@ func TestValidateBaseURL(t *testing.T) {
 	}
 	if normalized != "http://127.0.0.1:11434/v1" {
 		t.Fatalf("normalized = %q", normalized)
+	}
+}
+
+func TestCheckBaseURLClassifiesHosts(t *testing.T) {
+	info, err := CheckBaseURL("http://127.0.0.1:11434")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Remote || info.Host != "127.0.0.1" || info.Normalized != "http://127.0.0.1:11434/v1" {
+		t.Fatalf("local info = %+v", info)
+	}
+
+	info, err = CheckBaseURL("https://api.openai.com/v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !info.Remote || info.Host != "api.openai.com" {
+		t.Fatalf("remote info = %+v", info)
+	}
+
+	if _, err := CheckBaseURL("not a url"); err == nil {
+		t.Fatal("expected an invalid URL to be rejected")
+	}
+}
+
+func TestNewWithConsent(t *testing.T) {
+	const remote = "https://api.openai.com/v1"
+	if _, err := New(remote, "gpt-4o", time.Second); !errors.Is(err, ErrRemoteEndpoint) {
+		t.Fatalf("New without consent: %v", err)
+	}
+	if _, err := NewWithConsent(remote, "gpt-4o", time.Second, false); !errors.Is(err, ErrRemoteEndpoint) {
+		t.Fatalf("NewWithConsent(false): %v", err)
+	}
+	client, err := NewWithConsent(remote, "gpt-4o", time.Second, true)
+	if err != nil {
+		t.Fatalf("NewWithConsent(true): %v", err)
+	}
+	if client.BaseURL() != remote || client.Model() != "gpt-4o" {
+		t.Fatalf("client = %q/%q", client.BaseURL(), client.Model())
 	}
 }
 

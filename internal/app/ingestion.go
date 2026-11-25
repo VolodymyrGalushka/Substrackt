@@ -155,7 +155,7 @@ func (h *IngestionHandler) runItem(ctx context.Context, jobID string, item inges
 }
 
 // pipeline builds a configured pipeline. Email sync reuses one across messages
-// so settings and the local LLM client are created once per job.
+// so settings and the LLM client are created once per job.
 func (h *IngestionHandler) pipeline(ctx context.Context, jobID string) (ingest.Pipeline, error) {
 	settings, err := h.store.GetSettings(ctx)
 	if err != nil {
@@ -171,10 +171,11 @@ func (h *IngestionHandler) pipeline(ctx context.Context, jobID string) (ingest.P
 		Model:        settings.LLMModel,
 	}
 	if settings.LLMEnabled() {
-		client, err := llm.New(settings.LLMBaseURL, settings.LLMModel,
-			time.Duration(settings.LLMTimeoutSeconds)*time.Second)
+		client, err := llm.NewWithConsent(settings.LLMBaseURL, settings.LLMModel,
+			time.Duration(settings.LLMTimeoutSeconds)*time.Second,
+			settings.LLMRemoteConsent)
 		if err != nil {
-			return ingest.Pipeline{}, fmt.Errorf("configured local LLM is invalid: %w", err)
+			return ingest.Pipeline{}, fmt.Errorf("configured LLM is invalid: %w", err)
 		}
 		config.Client = client
 	}

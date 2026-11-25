@@ -90,8 +90,9 @@ SHA-256, extracts fields with local rules, and — when a local model is configu
 in **Settings** — validates a JSON extraction from it. Results land in **Review
 queue**, except for unambiguous high-confidence proposals when auto-apply is on.
 Price changes and cancellations always need a human decision. The LLM endpoint
-must be loopback, private-network or a local service name; public hosts, queries
-and credentials are rejected.
+must be loopback, private-network or a local service name; queries and
+credentials are rejected, and a public host can only be saved after you accept
+a warning that your documents will be sent there.
 
 ## Email sources
 

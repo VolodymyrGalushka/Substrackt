@@ -98,6 +98,17 @@ export interface JobCounts {
 }
 
 /**
+ * LLMEndpointCheck classifies an endpoint before it is saved so the UI can
+ * warn the user when documents would be sent off this machine.
+ */
+export interface LLMEndpointCheck {
+    "valid": boolean;
+    "remote": boolean;
+    "host": string;
+    "error": string;
+}
+
+/**
  * LLMTestResult is the outcome of probing the local endpoint.
  */
 export interface LLMTestResult {
@@ -257,6 +268,7 @@ export interface Settings {
     "llmBaseUrl": string;
     "llmModel": string;
     "llmTimeoutSeconds": number;
+    "llmRemoteConsent": boolean;
     "autoApply": boolean;
     "autoApplyThreshold": number;
     "browserRuntime": string;

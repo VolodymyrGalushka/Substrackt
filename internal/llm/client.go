@@ -1,12 +1,13 @@
-// Package llm talks to a local OpenAI-compatible endpoint. It deliberately
-// refuses public hosts: subscription data never leaves the machine or the
-// user's own network.
+// Package llm talks to an OpenAI-compatible endpoint. Endpoints must be local
+// (loopback, a private address or a local service name) unless the user has
+// explicitly accepted the risk of sending subscription data to a remote host.
 package llm
 
 import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -15,6 +16,11 @@ import (
 	"strings"
 	"time"
 )
+
+// ErrRemoteEndpoint reports an endpoint whose host is outside the local
+// machine or the user's private network. Saving or using one requires the
+// user's recorded consent.
+var ErrRemoteEndpoint = errors.New("LLM endpoint is not local")
 
 // PromptVersion is part of the extraction cache key. Bump it whenever the
 // prompt or schema changes so stale results are not reused.
@@ -27,10 +33,19 @@ type Client struct {
 	http    *http.Client
 }
 
-// New validates the endpoint and returns a client. baseURL must be loopback, a
-// private address, or a local service name.
+// New validates the endpoint and returns a client. The endpoint must be local.
 func New(baseURL, model string, timeout time.Duration) (*Client, error) {
-	normalized, err := ValidateBaseURL(baseURL)
+	return newClient(baseURL, model, timeout, false)
+}
+
+// NewWithConsent returns a client for baseURL, allowing a non-local host when
+// remoteConsent records the user's acceptance of the data-exposure warning.
+func NewWithConsent(baseURL, model string, timeout time.Duration, remoteConsent bool) (*Client, error) {
+	return newClient(baseURL, model, timeout, remoteConsent)
+}
+
+func newClient(baseURL, model string, timeout time.Duration, allowRemote bool) (*Client, error) {
+	normalized, err := validateBaseURL(baseURL, allowRemote)
 	if err != nil {
 		return nil, err
 	}
@@ -54,38 +69,75 @@ func (c *Client) BaseURL() string { return c.baseURL }
 // Model returns the configured model name.
 func (c *Client) Model() string { return c.model }
 
-// ValidateBaseURL normalises an endpoint and rejects anything that is not on the
-// local machine or the user's private network.
-func ValidateBaseURL(raw string) (string, error) {
+// EndpointInfo describes a parsed, normalised endpoint.
+type EndpointInfo struct {
+	// Normalized is the URL with a canonical /v1 path suffix.
+	Normalized string
+	// Host is the bare hostname, without port.
+	Host string
+	// Remote is true when the host is outside this machine or private network.
+	Remote bool
+}
+
+// CheckBaseURL parses and normalises an endpoint, applying every structural
+// rule (scheme, credentials, query) but not the locality policy, and reports
+// whether the host is remote so callers can warn before saving.
+func CheckBaseURL(raw string) (EndpointInfo, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return "", fmt.Errorf("LLM endpoint is required")
+		return EndpointInfo{}, fmt.Errorf("LLM endpoint is required")
 	}
 	u, err := url.Parse(raw)
 	if err != nil {
-		return "", fmt.Errorf("invalid LLM endpoint: %w", err)
+		return EndpointInfo{}, fmt.Errorf("invalid LLM endpoint: %w", err)
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
-		return "", fmt.Errorf("LLM endpoint must use http or https")
+		return EndpointInfo{}, fmt.Errorf("LLM endpoint must use http or https")
 	}
 	if u.Host == "" {
-		return "", fmt.Errorf("LLM endpoint has no host")
+		return EndpointInfo{}, fmt.Errorf("LLM endpoint has no host")
 	}
 	if u.User != nil {
-		return "", fmt.Errorf("LLM endpoint must not contain credentials")
+		return EndpointInfo{}, fmt.Errorf("LLM endpoint must not contain credentials")
 	}
 	if u.RawQuery != "" || u.Fragment != "" {
-		return "", fmt.Errorf("LLM endpoint must not contain a query or fragment")
-	}
-	if !hostIsLocal(u.Hostname()) {
-		return "", fmt.Errorf("LLM endpoint %q is not local; only local or self-hosted endpoints are allowed", u.Hostname())
+		return EndpointInfo{}, fmt.Errorf("LLM endpoint must not contain a query or fragment")
 	}
 	path := strings.TrimRight(u.Path, "/")
 	if path == "" {
 		path = "/v1"
 	}
 	u.Path = path
-	return u.String(), nil
+	return EndpointInfo{
+		Normalized: u.String(),
+		Host:       u.Hostname(),
+		Remote:     !hostIsLocal(u.Hostname()),
+	}, nil
+}
+
+// ValidateBaseURL normalises an endpoint and rejects anything that is not on the
+// local machine or the user's private network.
+func ValidateBaseURL(raw string) (string, error) {
+	return validateBaseURL(raw, false)
+}
+
+// ValidateBaseURLConsent normalises an endpoint. A non-local host is accepted
+// only when remoteConsent records the user's explicit acknowledgement that
+// subscription data will be sent to it.
+func ValidateBaseURLConsent(raw string, remoteConsent bool) (string, error) {
+	return validateBaseURL(raw, remoteConsent)
+}
+
+func validateBaseURL(raw string, allowRemote bool) (string, error) {
+	info, err := CheckBaseURL(raw)
+	if err != nil {
+		return "", err
+	}
+	if info.Remote && !allowRemote {
+		return "", fmt.Errorf("%w: %q; remote endpoints require accepting the data-exposure warning",
+			ErrRemoteEndpoint, info.Host)
+	}
+	return info.Normalized, nil
 }
 
 func hostIsLocal(host string) bool {
@@ -499,7 +551,7 @@ func (e *statusError) Error() string {
 
 func isFormatUnsupported(err error) bool {
 	var se *statusError
-	if !errorsAs(err, &se) {
+	if !errors.As(err, &se) {
 		return false
 	}
 	if se.status != http.StatusBadRequest && se.status != http.StatusUnprocessableEntity {
@@ -507,22 +559,4 @@ func isFormatUnsupported(err error) bool {
 	}
 	body := strings.ToLower(se.body)
 	return strings.Contains(body, "response_format") || strings.Contains(body, "json_object")
-}
-
-// errorsAs is a tiny wrapper so this file does not need to import errors just
-// for one assertion.
-func errorsAs(err error, target **statusError) bool {
-	for err != nil {
-		if se, ok := err.(*statusError); ok {
-			*target = se
-			return true
-		}
-		type unwrapper interface{ Unwrap() error }
-		u, ok := err.(unwrapper)
-		if !ok {
-			return false
-		}
-		err = u.Unwrap()
-	}
-	return false
 }

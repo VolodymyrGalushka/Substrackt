@@ -15,6 +15,15 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 import * as $models from "./models.js";
 
 /**
+ * CheckLLMEndpoint classifies an endpoint before it is saved so the UI can
+ * warn the user when documents would be sent off this machine. An empty URL is
+ * valid and local: it disables the model.
+ */
+export function CheckLLMEndpoint(raw: string): $CancellablePromise<$models.LLMEndpointCheck> {
+    return $Call.ByID(1933167141, raw);
+}
+
+/**
  * Get returns the current settings, including defaults.
  */
 export function Get(): $CancellablePromise<$models.Settings> {
@@ -47,7 +56,9 @@ export function TestLLM(): $CancellablePromise<$models.LLMTestResult> {
 }
 
 /**
- * Update validates and saves settings. The endpoint must remain local.
+ * Update validates and saves settings. A non-local LLM endpoint is refused
+ * unless the request records the user's acceptance of the data-exposure
+ * warning.
  */
 export function Update($in: $models.Settings): $CancellablePromise<$models.Settings> {
     return $Call.ByID(1508758446, $in);

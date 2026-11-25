@@ -31,6 +31,7 @@ export type {
     DashboardSummary,
     Job,
     JobCounts,
+    LLMEndpointCheck,
     LLMTestResult,
     LLMUsage,
     ManualInput,

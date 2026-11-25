@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"substrackt/internal/domain"
@@ -30,7 +31,9 @@ func (s *SettingsService) Get() (Settings, error) {
 	return settingsDTO(settings), nil
 }
 
-// Update validates and saves settings. The endpoint must remain local.
+// Update validates and saves settings. A non-local LLM endpoint is refused
+// unless the request records the user's acceptance of the data-exposure
+// warning.
 func (s *SettingsService) Update(in Settings) (Settings, error) {
 	settings := settingsDomain(in)
 	settings.Normalize()
@@ -38,11 +41,21 @@ func (s *SettingsService) Update(in Settings) (Settings, error) {
 	if settings.LLMBaseURL == "" {
 		settings.LLMModel = ""
 	} else {
-		normalized, err := llm.ValidateBaseURL(settings.LLMBaseURL)
+		normalized, err := llm.ValidateBaseURLConsent(settings.LLMBaseURL,
+			settings.LLMRemoteConsent)
 		if err != nil {
 			return Settings{}, err
 		}
 		settings.LLMBaseURL = normalized
+		info, err := llm.CheckBaseURL(settings.LLMBaseURL)
+		if err != nil {
+			return Settings{}, err
+		}
+		if !info.Remote {
+			// Consent applies only to remote endpoints; drop a stale flag so a
+			// later remote endpoint must be accepted again.
+			settings.LLMRemoteConsent = false
+		}
 	}
 	if err := settings.Validate(); err != nil {
 		return Settings{}, fmt.Errorf("settings: %w", err)
@@ -53,6 +66,20 @@ func (s *SettingsService) Update(in Settings) (Settings, error) {
 	}
 	emit("settings:changed", settingsDTO(settings))
 	return settingsDTO(settings), nil
+}
+
+// CheckLLMEndpoint classifies an endpoint before it is saved so the UI can
+// warn the user when documents would be sent off this machine. An empty URL is
+// valid and local: it disables the model.
+func (s *SettingsService) CheckLLMEndpoint(raw string) LLMEndpointCheck {
+	if strings.TrimSpace(raw) == "" {
+		return LLMEndpointCheck{Valid: true}
+	}
+	info, err := llm.CheckBaseURL(raw)
+	if err != nil {
+		return LLMEndpointCheck{Valid: false, Error: err.Error()}
+	}
+	return LLMEndpointCheck{Valid: true, Remote: info.Remote, Host: info.Host}
 }
 
 // Reset restores defaults.
@@ -76,7 +103,7 @@ func (s *SettingsService) TestLLM() (LLMTestResult, error) {
 	if !settings.LLMEnabled() {
 		return LLMTestResult{
 			Models: []string{},
-			Error:  "Configure a local endpoint and model first.",
+			Error:  "Configure an endpoint and model first.",
 		}, nil
 	}
 
@@ -84,7 +111,8 @@ func (s *SettingsService) TestLLM() (LLMTestResult, error) {
 	if timeout <= 0 || timeout > 20*time.Second {
 		timeout = 20 * time.Second
 	}
-	client, err := llm.New(settings.LLMBaseURL, settings.LLMModel, timeout)
+	client, err := llm.NewWithConsent(settings.LLMBaseURL, settings.LLMModel,
+		timeout, settings.LLMRemoteConsent)
 	if err != nil {
 		return LLMTestResult{Models: []string{}, Error: err.Error()}, nil
 	}

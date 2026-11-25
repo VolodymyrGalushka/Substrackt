@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import Modal from "../components/Modal.svelte";
   import type { BrowserRuntime, LLMTestResult, Settings } from "../lib/api";
   import { SettingsService, SourcesService, errorMessage } from "../lib/api";
   import { loadLLMUsage, loadSettings, store } from "../lib/state.svelte";
@@ -13,6 +14,10 @@
   let testResult = $state<LLMTestResult | null>(null);
   let runtimeStatus = $state<BrowserRuntime | null>(null);
   let loaded = $state(false);
+  let consentOpen = $state(false);
+  let consentHost = $state("");
+  let consentAck = $state(false);
+  let pendingSettings = $state<Settings | null>(null);
 
   const presets = [
     { label: "Ollama", url: "http://127.0.0.1:11434/v1", model: "qwen2.5" },
@@ -33,6 +38,7 @@
       llmBaseUrl: "",
       llmModel: "",
       llmTimeoutSeconds: 60,
+      llmRemoteConsent: false,
       autoApply: true,
       autoApplyThreshold: 0.9,
       browserRuntime: "auto",
@@ -85,17 +91,36 @@
     event.preventDefault();
     formError = "";
     notice = "";
+    const threshold = Number(form.autoApplyThreshold);
+    const payload: Settings = {
+      ...form,
+      baseCurrency: form.baseCurrency.trim().toUpperCase(),
+      autoApplyThreshold: Number.isFinite(threshold)
+        ? Math.min(1, Math.max(0, threshold))
+        : 0.9,
+      llmTimeoutSeconds: Number(form.llmTimeoutSeconds) || 60,
+      llmRemoteConsent: false,
+    };
+    try {
+      const check = await SettingsService.CheckLLMEndpoint(payload.llmBaseUrl);
+      if (check.remote) {
+        // Hold the save until the user accepts the data-exposure warning.
+        pendingSettings = payload;
+        consentHost = check.host;
+        consentAck = false;
+        consentOpen = true;
+        return;
+      }
+      await persist(payload);
+    } catch (err) {
+      formError = errorMessage(err);
+    }
+  }
+
+  async function persist(payload: Settings) {
     saving = true;
     try {
-      const threshold = Number(form.autoApplyThreshold);
-      const saved = await SettingsService.Update({
-        ...form,
-        baseCurrency: form.baseCurrency.trim().toUpperCase(),
-        autoApplyThreshold: Number.isFinite(threshold)
-          ? Math.min(1, Math.max(0, threshold))
-          : 0.9,
-        llmTimeoutSeconds: Number(form.llmTimeoutSeconds) || 60,
-      });
+      const saved = await SettingsService.Update(payload);
       store.settings = saved;
       form = { ...saved };
       notice = "Settings saved.";
@@ -104,6 +129,28 @@
       formError = errorMessage(err);
     } finally {
       saving = false;
+    }
+  }
+
+  function cancelConsent() {
+    consentOpen = false;
+    pendingSettings = null;
+    consentAck = false;
+  }
+
+  async function acceptConsent() {
+    if (!consentAck || !pendingSettings) return;
+    const payload: Settings = { ...pendingSettings, llmRemoteConsent: true };
+    consentOpen = false;
+    pendingSettings = null;
+    await persist(payload);
+  }
+
+  function hostOf(url: string): string {
+    try {
+      return new URL(url).hostname;
+    } catch {
+      return url;
     }
   }
 
@@ -155,7 +202,7 @@
   <header class="page-head">
     <div>
       <h1>Settings</h1>
-      <p>Preferences, the local extraction model, and its recent activity.</p>
+      <p>Preferences, the extraction model, and its recent activity.</p>
     </div>
     <button class="btn ghost" onclick={reset}>Restore defaults</button>
   </header>
@@ -287,10 +334,18 @@
     </section>
 
     <section class="card">
-      <h3>Local extraction model</h3>
+      <h3>Extraction model</h3>
+      {#if store.settings?.llmRemoteConsent && store.settings.llmBaseUrl}
+        <p class="banner warn" role="status">
+          Remote endpoint in use: documents you ingest are sent to
+          <strong class="mono">{hostOf(store.settings.llmBaseUrl)}</strong>.
+          Switch to a local endpoint to keep them on this machine.
+        </p>
+      {/if}
       <p class="callout">
-        Substrackt only talks to an OpenAI-compatible endpoint on your machine or private
-        network. Public hosts are rejected so subscription data never leaves your control.
+        By default Substrackt only talks to an OpenAI-compatible endpoint on your
+        machine or private network. A public endpoint can only be saved after you
+        accept a warning that your documents will be sent there.
       </p>
 
       <div class="row" style="margin: 14px 0;">
@@ -385,7 +440,7 @@
     {#if usage.length === 0}
       <div class="empty">
         <strong>No model calls yet</strong>
-        <span>Calls are logged when an import uses the local model. Prompts and responses are never stored.</span>
+        <span>Calls are logged when an import uses the configured model. Prompts and responses are never stored.</span>
       </div>
     {:else}
       <div class="table-wrap flat">
@@ -427,3 +482,28 @@
     {/if}
   </section>
 </div>
+
+<Modal open={consentOpen} title="Send data to a remote endpoint?" onclose={cancelConsent}>
+  <p style="margin-top: 0;">
+    <strong class="mono">{consentHost}</strong> is not on this machine or your
+    private network. Every receipt, email and document you ingest would be sent
+    there for processing, and Substrackt cannot protect your data once it leaves.
+  </p>
+  <p class="callout">
+    Local endpoints such as Ollama, LM Studio or llama.cpp on 127.0.0.1 keep
+    everything on this machine.
+  </p>
+  <label class="check-row">
+    <input type="checkbox" bind:checked={consentAck} />
+    <span>
+      I understand that my subscription data will leave this machine, and I
+      accept the risk.
+    </span>
+  </label>
+  <div class="modal-actions">
+    <button class="btn" onclick={cancelConsent}>Cancel</button>
+    <button class="btn primary" onclick={acceptConsent} disabled={!consentAck}>
+      Save remote endpoint
+    </button>
+  </div>
+</Modal>

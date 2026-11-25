@@ -16,9 +16,12 @@ Keep changes idiomatic for Wails v3 — it differs substantially from v2.
 
 ### Hard product constraints
 
-- **No cloud LLM.** The LLM client must talk to a local / self-hosted
-  OpenAI-compatible endpoint only. Never add vendor keys or send subscription
-  data to a hosted API.
+- **No cloud LLM by default.** The LLM client must talk to a local /
+  self-hosted OpenAI-compatible endpoint. A non-local endpoint can only be
+  saved or used after the user accepts an explicit data-exposure warning; the
+  acceptance is recorded as `Settings.LLMRemoteConsent` and enforced by
+  `llm.ValidateBaseURLConsent`. Never add vendor keys or send subscription
+  data to a hosted API without that recorded consent.
 - **Never store secrets or PANs.** Payment methods hold metadata only (label,
   issuer, network, last4, expiry, wallet address + chain). Source passwords live
   only in the secret store (`internal/secrets`) and are never exposed through
@@ -89,7 +92,7 @@ internal/store/migrations/*.sql   embedded schema migrations (add new files, nev
 internal/app/           Wails-bound services, DTOs, mappers, tests
 internal/ingest/        normalization, dedupe, classification, heuristics, extraction pipeline
 internal/jobs/          persisted job queue with a cancellable worker pool
-internal/llm/           local OpenAI-compatible client (public hosts rejected)
+internal/llm/           OpenAI-compatible client (remote hosts need consent)
 internal/mail/          go-imap/v2 client and MIME parsing (text/plain preferred)
 internal/browser/       Playwright engine and the vendor connector registry
 internal/api/           declarative API connectors (Stripe, Paddle) and OAuth loopback
@@ -127,8 +130,11 @@ docs/plan.md            architecture and milestones
   Heuristic confidence is capped at 0.85, below the default 0.9 auto-apply
   threshold, so rules-only results always go to review.
 - `internal/llm` only accepts loopback, private/link-local addresses, bare
-  service names and local suffixes; never public hosts, credentials or
-  query/fragment. Keep it that way.
+  service names and local suffixes; a non-local host is refused unless
+  `remoteConsent` records the user's acceptance of the data-exposure warning
+  (`SettingsService.Update` clears that flag whenever the endpoint is local or
+  removed). Credentials in the URL, query strings and fragments are never
+  allowed. Keep it that way.
 - Background jobs are persisted and claimed atomically. Handlers must return
   promptly when their context is cancelled. The bound `IngestionService` only
   queues manual imports; `IngestionHandler` and `EmailHandler` (not Wails

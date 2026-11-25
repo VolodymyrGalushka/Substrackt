@@ -378,7 +378,8 @@ func TestSettingsValidationAndLocalEndpointPolicy(t *testing.T) {
 		t.Fatalf("get defaults: %v", err)
 	}
 
-	// A hosted provider must be refused: subscription data never leaves the LAN.
+	// A hosted provider must be refused until the user accepts the warning
+	// that subscription data would leave the LAN.
 	if _, err := a.settings.Update(Settings{
 		BaseCurrency:      "USD",
 		LLMBaseURL:        "https://api.openai.com/v1",
@@ -387,6 +388,22 @@ func TestSettingsValidationAndLocalEndpointPolicy(t *testing.T) {
 		AutoApply:         true,
 	}); err == nil {
 		t.Fatal("expected a public LLM endpoint to be rejected")
+	}
+
+	// The same endpoint is accepted once the request records consent.
+	consented, err := a.settings.Update(Settings{
+		BaseCurrency:      "USD",
+		LLMBaseURL:        "https://api.openai.com/v1",
+		LLMModel:          "gpt-4o",
+		LLMTimeoutSeconds: 30,
+		AutoApply:         true,
+		LLMRemoteConsent:  true,
+	})
+	if err != nil {
+		t.Fatalf("consented update: %v", err)
+	}
+	if !consented.LLMRemoteConsent || consented.LLMBaseURL != "https://api.openai.com/v1" {
+		t.Fatalf("consented settings = %+v", consented)
 	}
 
 	if _, err := a.settings.Update(Settings{
@@ -406,11 +423,13 @@ func TestSettingsValidationAndLocalEndpointPolicy(t *testing.T) {
 	}
 
 	saved, err := a.settings.Update(Settings{
-		Timezone:           "Europe/Berlin",
-		BaseCurrency:       "eur",
-		LLMBaseURL:         "http://127.0.0.1:11434",
-		LLMModel:           "qwen2.5",
-		LLMTimeoutSeconds:  45,
+		Timezone:          "Europe/Berlin",
+		BaseCurrency:      "eur",
+		LLMBaseURL:        "http://127.0.0.1:11434",
+		LLMModel:          "qwen2.5",
+		LLMTimeoutSeconds: 45,
+		// A stale consent flag must not survive a switch back to a local host.
+		LLMRemoteConsent:   true,
 		AutoApply:          false,
 		AutoApplyThreshold: 0.95,
 	})
@@ -422,6 +441,9 @@ func TestSettingsValidationAndLocalEndpointPolicy(t *testing.T) {
 	}
 	if saved.LLMBaseURL != "http://127.0.0.1:11434/v1" {
 		t.Fatalf("endpoint = %q, want the /v1 suffix", saved.LLMBaseURL)
+	}
+	if saved.LLMRemoteConsent {
+		t.Fatal("a local endpoint must not keep remote consent")
 	}
 
 	got, err := a.settings.Get()
@@ -438,6 +460,60 @@ func TestSettingsValidationAndLocalEndpointPolicy(t *testing.T) {
 	}
 	if reset.BaseCurrency != "USD" || reset.LLMBaseURL != "" {
 		t.Fatalf("reset = %+v", reset)
+	}
+}
+
+func TestSettingsCheckLLMEndpoint(t *testing.T) {
+	a := newTestApp(t)
+
+	local := a.settings.CheckLLMEndpoint("http://127.0.0.1:11434/v1")
+	if !local.Valid || local.Remote || local.Host != "127.0.0.1" {
+		t.Fatalf("local check = %+v", local)
+	}
+
+	remote := a.settings.CheckLLMEndpoint("https://api.openai.com/v1")
+	if !remote.Valid || !remote.Remote || remote.Host != "api.openai.com" {
+		t.Fatalf("remote check = %+v", remote)
+	}
+
+	empty := a.settings.CheckLLMEndpoint("  ")
+	if !empty.Valid || empty.Remote {
+		t.Fatalf("empty check = %+v", empty)
+	}
+
+	bad := a.settings.CheckLLMEndpoint("ftp://127.0.0.1:11434")
+	if bad.Valid || bad.Error == "" {
+		t.Fatalf("invalid check = %+v", bad)
+	}
+}
+
+func TestPipelineRequiresConsentForRemoteEndpoint(t *testing.T) {
+	a := newTestApp(t)
+	handler := NewIngestionHandler(a.store, a.subs)
+
+	seed := domain.Settings{
+		BaseCurrency:       "USD",
+		LLMBaseURL:         "https://api.openai.com/v1",
+		LLMModel:           "gpt-4o",
+		LLMTimeoutSeconds:  30,
+		AutoApply:          true,
+		AutoApplyThreshold: domain.DefaultAutoApplyThreshold,
+	}
+	if err := a.store.SaveSettings(context.Background(), seed); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if _, err := handler.pipeline(context.Background(), ""); err == nil ||
+		!strings.Contains(err.Error(), "not local") {
+		t.Fatalf("unconsented remote endpoint: %v", err)
+	}
+
+	// With the consent flag recorded, the same endpoint builds a client.
+	seed.LLMRemoteConsent = true
+	if err := a.store.SaveSettings(context.Background(), seed); err != nil {
+		t.Fatalf("seed consented: %v", err)
+	}
+	if _, err := handler.pipeline(context.Background(), ""); err != nil {
+		t.Fatalf("consented remote endpoint: %v", err)
 	}
 }
 
