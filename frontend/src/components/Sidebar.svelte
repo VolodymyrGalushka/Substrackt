@@ -2,6 +2,7 @@
   import { go, nav, type Route } from "../lib/router.svelte";
   import { store } from "../lib/state.svelte";
   import { setTheme, theme, type ThemeMode } from "../lib/theme.svelte";
+  import logoUrl from "../assets/logo.svg";
 
   const items: { route: Route; label: string; icon: string }[] = [
     { route: "dashboard", label: "Dashboard", icon: "◧" },
@@ -33,7 +34,7 @@
 
 <aside class="sidebar">
   <div class="brand">
-    <span class="brand-mark">S</span>
+    <img class="brand-mark" src={logoUrl} alt="Substrackt logo" width="34" height="34" />
     <div>
       <strong>Substrackt</strong>
       <small>subscription tracker</small>

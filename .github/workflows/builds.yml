@@ -46,6 +46,9 @@ jobs:
           go vet -tags gtk3 . ./internal/...
           go test -tags gtk3 ./internal/...
 
+      - name: Frontend check
+        run: npm --prefix frontend run check
+
       - name: Build
         run: wails3 build
 

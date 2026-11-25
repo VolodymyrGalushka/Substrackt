@@ -194,15 +194,10 @@ a {
 }
 
 .brand-mark {
-  display: grid;
-  place-items: center;
+  display: block;
   width: 34px;
   height: 34px;
-  border-radius: 10px;
-  background: linear-gradient(140deg, #8b6bff, #4f7cff);
-  font-weight: 700;
-  color: #fff;
-  box-shadow: 0 6px 20px rgba(101, 108, 255, 0.35);
+  filter: drop-shadow(0 6px 16px rgba(101, 108, 255, 0.35));
 }
 
 .brand strong {

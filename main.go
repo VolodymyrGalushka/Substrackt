@@ -22,6 +22,12 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
+// appIcon is the window/taskbar icon on Linux and the dock icon on macOS;
+// Windows takes it from the compiled .syso resource instead.
+//
+//go:embed build/appicon.png
+var appIcon []byte
+
 func main() {
 	// Must run before application.New initialises GTK: WebKitGTK reads the GTK
 	// theme when it decides prefers-color-scheme, so a dark desktop needs
@@ -100,6 +106,7 @@ func main() {
 	wailsApp := application.New(application.Options{
 		Name:        "Substrackt",
 		Description: "Track and manage your subscriptions",
+		Icon:        appIcon,
 		Services: []application.Service{
 			application.NewService(subscriptions),
 			application.NewService(appsvc.NewPaymentMethodsService(st)),
