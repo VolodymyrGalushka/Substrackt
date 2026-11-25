@@ -1,0 +1,157 @@
+name: Builds
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: builds-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    name: Linux (amd64)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27.4"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install GTK and WebKitGTK development packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev pkg-config
+
+      - name: Install Wails CLI
+        run: |
+          go install -tags gtk3 github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Frontend dependencies
+        run: npm ci --prefix frontend
+
+      - name: Vet and test
+        run: |
+          go vet -tags gtk3 . ./internal/...
+          go test -tags gtk3 ./internal/...
+
+      - name: Build
+        run: wails3 build
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: substrackt-linux-amd64
+          path: bin/substrackt
+          if-no-files-found: error
+
+  macos:
+    name: macOS (arm64)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27.4"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Wails CLI
+        run: |
+          go install github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Frontend dependencies
+        run: npm ci --prefix frontend
+
+      - name: Build .app bundle
+        run: wails3 task darwin:package
+
+      - name: Zip the app bundle
+        run: |
+          cd bin
+          zip -r -y substrackt-macos-arm64.zip substrackt.app
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: substrackt-macos-arm64
+          path: bin/substrackt-macos-arm64.zip
+          if-no-files-found: error
+
+  windows:
+    name: Windows (amd64)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27.4"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Wails CLI
+        run: |
+          go install github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+        shell: bash
+
+      - name: Frontend dependencies
+        run: npm ci --prefix frontend
+
+      - name: Build
+        run: wails3 build
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: substrackt-windows-amd64
+          path: bin/substrackt.exe
+          if-no-files-found: error
+
+  release:
+    name: Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [linux, macos, windows]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Collect release files
+        run: |
+          mkdir -p release
+          chmod +x dist/substrackt-linux-amd64/substrackt
+          tar -czf release/substrackt-linux-amd64.tar.gz -C dist/substrackt-linux-amd64 substrackt
+          cp dist/substrackt-macos-arm64/substrackt-macos-arm64.zip release/
+          cp dist/substrackt-windows-amd64/substrackt.exe release/Substrackt-windows-amd64.exe
+          sha256sum release/* > release/checksums.txt
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*

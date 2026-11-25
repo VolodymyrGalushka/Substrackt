@@ -4,8 +4,9 @@
 
 # Substrackt
 
-A desktop app for tracking subscriptions: what you pay, how often, with which
-payment method, and when it renews next. Everything runs on your machine —
+A desktop app for Linux, macOS and Windows that tracks subscriptions: what you
+pay, how often, with which payment method, and when it renews next. Everything
+runs on your machine —
 data lives in a local SQLite database, secrets live in your OS keyring, and
 nothing is sent anywhere unless you explicitly point it at your own services.
 
@@ -54,19 +55,27 @@ nothing is sent anywhere unless you explicitly point it at your own services.
   go install -tags gtk3 github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0
   ```
 
-- **Linux only for now** — the window is GTK3 + WebKit2GTK 4.1, so the matching
-  development packages must be installed (e.g. `gtk3-devel`, `webkit2gtk-4.1-devel`
-  on Fedora).
+- **Platform toolchain** — Linux needs the GTK 3 and WebKit2GTK 4.1
+  development packages (e.g. `gtk3-devel`, `webkit2gtk-4.1-devel` on Fedora),
+  macOS needs the Xcode Command Line Tools, and Windows needs nothing extra.
+  GitHub Actions builds all three platforms on every push and tag
+  (`.github/workflows/builds.yml`), so prebuilt binaries exist without a local
+  toolchain.
 
 ## Build and run
 
 ```sh
 wails3 dev               # run with hot reload
-wails3 build             # production build -> bin/substrackt
+wails3 build             # production build for the host -> bin/
+wails3 task darwin:package  # macOS: build + unsigned .app bundle
+wails3 task windows:build   # Windows: portable .exe
 wails3 generate bindings -ts -i  # regenerate TS bindings after Go service changes
 npm --prefix frontend run check   # svelte-check (types + a11y)
 go test -tags gtk3 ./internal/... # domain, store and service tests
 ```
+
+Tagged releases (for example `v0.2.0`) produce a GitHub release with the Linux
+tarball, the macOS `.app` bundle and the Windows `.exe`, plus checksums.
 
 ## Where your data lives
 
